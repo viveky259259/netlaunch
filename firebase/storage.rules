@@ -1,0 +1,20 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Uploads directory - allow uploads with API key in path
+    match /uploads/{apiKey}/{allPaths=**} {
+      // Allow upload of zip files only, max 100MB
+      allow write: if request.resource.size < 100 * 1024 * 1024 
+                   && request.resource.contentType.matches('application/zip') 
+                   || request.resource.contentType.matches('application/x-zip-compressed');
+      allow read: if false; // Only Cloud Functions can read
+      allow delete: if false; // Only Cloud Functions can delete
+    }
+    
+    // Deployments directory - only Cloud Functions can access
+    match /deployments/{allPaths=**} {
+      allow read, write: if false; // Only Cloud Functions
+    }
+  }
+}
+

@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // API Keys collection - only Cloud Functions can write, no direct client access
+    match /apiKeys/{apiKeyId} {
+      allow read: if false; // No direct client reads
+      allow write: if false; // Only Cloud Functions can write
+    }
+    
+    // Deployments collection - users can read their own deployments via API key
+    match /deployments/{deploymentId} {
+      // Allow read if the deployment's apiKey matches (this will be enforced in Cloud Functions)
+      // For now, we'll restrict all client access and handle via Cloud Functions
+      allow read: if false; // Read via Cloud Functions only for security
+      allow write: if false; // Write via Cloud Functions only
+    }
+  }
+}
+
