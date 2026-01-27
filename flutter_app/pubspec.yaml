@@ -1,0 +1,13 @@
+
+  
+  # Firebase
+  firebase_core: ^3.6.0
+  firebase_storage: ^12.3.4
+  cloud_firestore: ^5.4.3
+  cloud_functions: ^5.1.6
+  
+  # UI & State Management
+  provider: ^6.1.1
+  
+  # File handling
+  file_picker: ^6.1.1

@@ -1,0 +1,30 @@
+{
+  "hosting": {
+    "public": "flutter_app/build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20"
+  },
+  "firestore": {
+    "rules": "firebase/firestore.rules"
+  },
+  "storage": [
+    {
+      "bucket": "deployinstantwebapp.firebasestorage.app",
+      "rules": "firebase/storage.rules"
+    }
+  ]
+}
+

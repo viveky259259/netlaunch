@@ -1,0 +1,23 @@
+{
+  "name": "firebase-hosting-service",
+  "version": "1.0.0",
+  "description": "Firebase Hosting Service - Deploy web projects with unique subdomains",
+  "scripts": {
+    "deploy": "bash deploy.sh",
+    "deploy:hosting": "bash deploy.sh",
+    "deploy:functions": "cd functions && npm run build && firebase deploy --only functions",
+    "deploy:rules": "firebase deploy --only firestore:rules,storage:rules",
+    "deploy:all": "bash deploy.sh && cd functions && npm run build && firebase deploy --only functions",
+    "build:flutter": "cd flutter_app && flutter clean && flutter pub get && flutter build web --release",
+    "build:functions": "cd functions && npm install && npm run build"
+  },
+  "keywords": [
+    "firebase",
+    "hosting",
+    "flutter",
+    "deployment"
+  ],
+  "author": "",
+  "license": "MIT"
+}
+
