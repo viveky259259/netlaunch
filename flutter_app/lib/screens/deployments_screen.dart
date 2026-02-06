@@ -1,42 +1,72 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutterkit/kit/kit.dart';
 import '../services/firestore_service.dart';
 import '../services/functions_service.dart';
 import '../models/deployment.dart';
 import '../widgets/deployment_card.dart';
 
 class DeploymentsScreen extends StatelessWidget {
+  final String userId;
   final String apiKey;
 
-  const DeploymentsScreen({super.key, required this.apiKey});
+  const DeploymentsScreen(
+      {super.key, required this.userId, required this.apiKey});
 
   @override
   Widget build(BuildContext context) {
-    final firestoreService = Provider.of<FirestoreService>(context, listen: false);
-    final functionsService = Provider.of<FunctionsService>(context, listen: false);
+    final firestoreService =
+        Provider.of<FirestoreService>(context, listen: false);
+    final functionsService =
+        Provider.of<FunctionsService>(context, listen: false);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Deployments'),
       ),
       body: StreamBuilder<List<Deployment>>(
-        stream: firestoreService.listenToDeployments(apiKey),
+        stream: firestoreService.listenToDeploymentsByUserId(userId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(child: UkSpinner());
           }
 
           if (snapshot.hasError) {
             return Center(
-              child: Text('Error: ${snapshot.error}'),
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: UkAlert(
+                  message: 'Error: ${snapshot.error}',
+                  type: UkAlertType.danger,
+                  dismissible: false,
+                ),
+              ),
             );
           }
 
           final deployments = snapshot.data ?? [];
 
           if (deployments.isEmpty) {
-            return const Center(
-              child: Text('No deployments yet. Upload a file to get started!'),
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.web_outlined,
+                      size: 64,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  const SizedBox(height: 16),
+                  UkHeading('No deployments yet',
+                      level: 5, textAlign: TextAlign.center),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Upload a file to get started!',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
             );
           }
 
@@ -56,16 +86,16 @@ class DeploymentsScreen extends StatelessWidget {
                         'Are you sure you want to delete this deployment?',
                       ),
                       actions: [
-                        TextButton(
+                        UkButton(
+                          label: 'Cancel',
+                          variant: UkButtonVariant.text,
                           onPressed: () => Navigator.pop(context, false),
-                          child: const Text('Cancel'),
                         ),
-                        TextButton(
+                        UkButton(
+                          label: 'Delete',
+                          variant: UkButtonVariant.primary,
+                          icon: Icons.delete,
                           onPressed: () => Navigator.pop(context, true),
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.red,
-                          ),
-                          child: const Text('Delete'),
                         ),
                       ],
                     ),
@@ -105,4 +135,3 @@ class DeploymentsScreen extends StatelessWidget {
     );
   }
 }
-

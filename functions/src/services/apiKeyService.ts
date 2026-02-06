@@ -5,6 +5,8 @@ const db = admin.firestore();
 
 export interface ApiKeyData {
   apiKey: string;
+  userId: string;
+  userEmail: string | null;
   createdAt: admin.firestore.Timestamp;
   usageCount: number;
   lastUsed: admin.firestore.Timestamp | null;
@@ -14,12 +16,18 @@ export interface ApiKeyData {
 /**
  * Generate a new API key
  */
-export async function generateApiKey(metadata?: Record<string, any>): Promise<string> {
+export async function generateApiKey(
+  userId: string,
+  userEmail: string | null,
+  metadata?: Record<string, any>
+): Promise<string> {
   const apiKey = `fk_${crypto.randomBytes(32).toString('hex')}`;
   const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
   
   const apiKeyData: ApiKeyData = {
     apiKey: hashedKey,
+    userId: userId,
+    userEmail: userEmail,
     createdAt: admin.firestore.Timestamp.now(),
     usageCount: 0,
     lastUsed: null,
@@ -53,6 +61,44 @@ export async function validateApiKey(apiKey: string): Promise<boolean> {
   });
   
   return true;
+}
+
+/**
+ * Get user ID from API key
+ */
+export async function getUserIdFromApiKey(apiKey: string): Promise<string | null> {
+  if (!apiKey || !apiKey.startsWith('fk_')) {
+    return null;
+  }
+  
+  const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
+  const doc = await db.collection('apiKeys').doc(hashedKey).get();
+  
+  if (!doc.exists) {
+    return null;
+  }
+  
+  const data = doc.data() as ApiKeyData;
+  return data.userId || null;
+}
+
+/**
+ * List API keys for a user
+ */
+export async function listApiKeysForUser(userId: string): Promise<Array<{id: string; createdAt: admin.firestore.Timestamp; usageCount: number}>> {
+  const snapshot = await db.collection('apiKeys')
+    .where('userId', '==', userId)
+    .orderBy('createdAt', 'desc')
+    .get();
+  
+  return snapshot.docs.map(doc => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      createdAt: data.createdAt,
+      usageCount: data.usageCount,
+    };
+  });
 }
 
 /**

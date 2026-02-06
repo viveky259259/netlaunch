@@ -4,6 +4,23 @@ import '../models/deployment.dart';
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  /// Listen to deployments for a specific user by userId
+  Stream<List<Deployment>> listenToDeploymentsByUserId(String userId) {
+    return _firestore
+        .collection('deployments')
+        .where('userId', isEqualTo: userId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        return Deployment.fromMap(data, doc.id);
+      }).toList();
+    });
+  }
+
+  /// Legacy method - listen to deployments by API key
+  @Deprecated('Use listenToDeploymentsByUserId instead')
   Stream<List<Deployment>> listenToDeployments(String apiKey) {
     return _firestore
         .collection('deployments')

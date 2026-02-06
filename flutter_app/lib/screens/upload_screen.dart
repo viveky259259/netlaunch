@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutterkit/kit/kit.dart';
 import '../services/storage_service.dart';
 import '../services/functions_service.dart';
 import '../widgets/file_upload_widget.dart';
@@ -16,15 +18,24 @@ class UploadScreen extends StatefulWidget {
 
 class _UploadScreenState extends State<UploadScreen> {
   final TextEditingController _apiKeyController = TextEditingController();
+  final TextEditingController _siteNameController = TextEditingController();
   String? _selectedFileName;
   PlatformFile? _selectedFile;
   bool _isUploading = false;
   bool _isGeneratingKey = false;
   double _uploadProgress = 0.0;
+  String? _siteNameError;
+
+  void _validateSiteName(String value) {
+    setState(() {
+      _siteNameError = StorageService.validateSiteName(value.toLowerCase());
+    });
+  }
 
   @override
   void dispose() {
     _apiKeyController.dispose();
+    _siteNameController.dispose();
     super.dispose();
   }
 
@@ -50,7 +61,6 @@ class _UploadScreenState extends State<UploadScreen> {
           Provider.of<FunctionsService>(context, listen: false);
       final apiKey = await functionsService.generateApiKey();
 
-      // Show dialog with the generated API key
       if (mounted) {
         _showApiKeyDialog(apiKey);
       }
@@ -90,7 +100,7 @@ class _UploadScreenState extends State<UploadScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.grey[200],
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: SelectableText(
@@ -102,24 +112,24 @@ class _UploadScreenState extends State<UploadScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                '⚠️ Important: Copy this key now. You won\'t be able to see it again!',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.orange,
-                  fontWeight: FontWeight.bold,
-                ),
+              UkAlert(
+                message:
+                    'Copy this key now. You won\'t be able to see it again!',
+                type: UkAlertType.warning,
+                dismissible: false,
               ),
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: const Text('Cancel'),
+            UkButton(
+              label: 'Cancel',
+              variant: UkButtonVariant.text,
+              onPressed: () => Navigator.of(context).pop(),
             ),
-            ElevatedButton.icon(
+            UkButton(
+              label: 'Copy & Use',
+              variant: UkButtonVariant.primary,
+              icon: Icons.copy,
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: apiKey));
                 if (mounted) {
@@ -131,13 +141,10 @@ class _UploadScreenState extends State<UploadScreen> {
                   );
                 }
                 Navigator.of(context).pop();
-                // Auto-fill the text field with the generated key
                 setState(() {
                   _apiKeyController.text = apiKey;
                 });
               },
-              icon: const Icon(Icons.copy),
-              label: const Text('Copy & Use'),
             ),
           ],
         );
@@ -149,6 +156,15 @@ class _UploadScreenState extends State<UploadScreen> {
     if (_apiKeyController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your API key')),
+      );
+      return;
+    }
+
+    final siteName = _siteNameController.text.toLowerCase().trim();
+    final siteNameError = StorageService.validateSiteName(siteName);
+    if (siteNameError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(siteNameError)),
       );
       return;
     }
@@ -168,10 +184,12 @@ class _UploadScreenState extends State<UploadScreen> {
     try {
       final storageService =
           Provider.of<StorageService>(context, listen: false);
-      final uploadStream = storageService.uploadZipFileWithProgress(
+
+      final uploadStream = await storageService.uploadZipFileWithProgressAsync(
         _apiKeyController.text,
         _selectedFile!.bytes!,
         _selectedFile!.name,
+        siteName,
       );
 
       uploadStream.listen(
@@ -235,10 +253,11 @@ class _UploadScreenState extends State<UploadScreen> {
           IconButton(
             icon: const Icon(Icons.list),
             onPressed: () {
-              if (_apiKeyController.text.isEmpty) {
+              final user = FirebaseAuth.instance.currentUser;
+              if (user == null) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                      content: Text('Please enter your API key first')),
+                      content: Text('Please sign in to view deployments')),
                 );
                 return;
               }
@@ -246,6 +265,7 @@ class _UploadScreenState extends State<UploadScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => DeploymentsScreen(
+                    userId: user.uid,
                     apiKey: _apiKeyController.text,
                   ),
                 ),
@@ -256,83 +276,150 @@ class _UploadScreenState extends State<UploadScreen> {
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
+        child: UkContainer(
+          size: UkContainerSize.medium,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // API Key Section
+              UkCard(
+                header: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.vpn_key, size: 20),
+                        SizedBox(width: 8),
+                        Text('API Key'),
+                      ],
+                    ),
+                    UkButton(
+                      label:
+                          _isGeneratingKey ? 'Generating...' : 'Generate',
+                      variant: UkButtonVariant.tonal,
+                      size: UkButtonSize.small,
+                      icon: _isGeneratingKey ? null : Icons.add,
+                      onPressed: _isGeneratingKey ? null : _generateApiKey,
+                    ),
+                  ],
+                ),
+                child: UkTextField(
+                  controller: _apiKeyController,
+                  hint: 'Enter your API key (fk_...)',
+                  isPassword: true,
+                  prefixIcon: Icons.key,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Site Name Section
+              UkCard(
+                header: const Row(
+                  children: [
+                    Icon(Icons.language, size: 20),
+                    SizedBox(width: 8),
+                    Text('Website Name'),
+                  ],
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'API Key',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+                    Text(
+                      'Choose a unique name for your website URL',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
-                        ),
-                        TextButton.icon(
-                          onPressed: _isGeneratingKey ? null : _generateApiKey,
-                          icon: _isGeneratingKey
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.vpn_key, size: 18),
-                          label: Text(
-                              _isGeneratingKey ? 'Generating...' : 'Generate'),
-                        ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _siteNameController,
+                      decoration: InputDecoration(
+                        hintText: 'my-awesome-app',
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.link),
+                        suffixText: '.web.app',
+                        errorText: _siteNameError,
+                      ),
+                      onChanged: _validateSiteName,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                            RegExp(r'[a-zA-Z0-9-]')),
+                        LengthLimitingTextInputFormatter(30),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    TextField(
-                      controller: _apiKeyController,
-                      decoration: const InputDecoration(
-                        hintText: 'Enter your API key (fk_...)',
-                        border: OutlineInputBorder(),
-                      ),
-                      obscureText: true,
+                    Row(
+                      children: [
+                        Icon(Icons.open_in_new,
+                            size: 14,
+                            color: Theme.of(context).colorScheme.primary),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            'https://${_siteNameController.text.toLowerCase().isNotEmpty ? _siteNameController.text.toLowerCase() : "your-site"}.web.app',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            FileUploadWidget(
-              onFileSelected: (fileName) {
-                setState(() {
-                  _selectedFileName = fileName;
-                });
-              },
-              selectedFileName: _selectedFileName,
-              onPickFile: _pickFile,
-            ),
-            const SizedBox(height: 24),
-            if (_isUploading)
-              Column(
-                children: [
-                  LinearProgressIndicator(value: _uploadProgress),
-                  const SizedBox(height: 8),
-                  Text(
-                      'Uploading: ${(_uploadProgress * 100).toStringAsFixed(1)}%'),
-                ],
-              )
-            else
-              ElevatedButton.icon(
-                onPressed: _pickAndUploadFile,
-                icon: const Icon(Icons.cloud_upload),
-                label: const Text('Upload and Deploy'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
+              const SizedBox(height: 24),
+
+              // File Upload
+              FileUploadWidget(
+                onFileSelected: (fileName) {
+                  setState(() {
+                    _selectedFileName = fileName;
+                  });
+                },
+                selectedFileName: _selectedFileName,
+                onPickFile: _pickFile,
               ),
-          ],
+              const SizedBox(height: 24),
+
+              // Upload Button / Progress
+              if (_isUploading)
+                UkCard(
+                  child: Column(
+                    children: [
+                      UkProgress(
+                        value: _uploadProgress,
+                        variant: UkProgressVariant.primary,
+                        size: UkProgressSize.large,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Uploading: ${(_uploadProgress * 100).toStringAsFixed(1)}%',
+                        style:
+                            Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w500,
+                                ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                SizedBox(
+                  width: double.infinity,
+                  child: UkButton(
+                    label: 'Upload and Deploy',
+                    variant: UkButtonVariant.primary,
+                    size: UkButtonSize.large,
+                    icon: Icons.cloud_upload,
+                    onPressed: _pickAndUploadFile,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
