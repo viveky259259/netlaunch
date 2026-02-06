@@ -1,5 +1,5 @@
 # Setup Guide
-
+fk_6c39aa2a134b603e6f7823100d6a59f30f3e3dadb2f10e967a6bb6965c2c1b0d
 ## Prerequisites
 
 1. **Node.js 20+** - [Download](https://nodejs.org/)
@@ -127,7 +127,7 @@ To generate an API key, you can:
 
 **API Key Format**: `fk_{random_hex_string}`
 
-Example: `fk_a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456`
+Example: `fk_88f679a3c5c60f1b652f689347e31b8848670957bc560134a45fdfab0bc963bb`
 
 ## Testing Locally
 

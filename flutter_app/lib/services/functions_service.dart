@@ -61,5 +61,36 @@ class FunctionsService {
       throw Exception('Failed to generate API key: $e');
     }
   }
+
+  /// List deployments for the authenticated user (requires login)
+  Future<List<Deployment>> listUserDeployments({int? limit}) async {
+    try {
+      final callable = _functions.httpsCallable('listUserDeploymentsFunction');
+      final result = await callable.call({
+        if (limit != null) 'limit': limit,
+      });
+
+      final data = result.data as Map<String, dynamic>;
+      final deployments = (data['deployments'] as List)
+          .map((d) => Deployment.fromMap(d as Map<String, dynamic>, d['id'] as String))
+          .toList();
+
+      return deployments;
+    } catch (e) {
+      throw Exception('Failed to list deployments: $e');
+    }
+  }
+
+  /// Delete a deployment for the authenticated user (requires login)
+  Future<void> deleteUserDeployment(String deploymentId) async {
+    try {
+      final callable = _functions.httpsCallable('deleteUserDeploymentFunction');
+      await callable.call({
+        'deploymentId': deploymentId,
+      });
+    } catch (e) {
+      throw Exception('Failed to delete deployment: $e');
+    }
+  }
 }
 

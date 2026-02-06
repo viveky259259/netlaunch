@@ -9,12 +9,19 @@ export const generateApiKeyFunction = async (
   data: GenerateApiKeyRequest,
   context: functions.https.CallableContext
 ): Promise<{ apiKey: string; message: string }> => {
-  // Optional: Add authentication check here
-  // For now, anyone can generate an API key
-  // You might want to restrict this to authenticated users
+  // Require authentication
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'You must be logged in to generate an API key.'
+    );
+  }
+  
+  const userId = context.auth.uid;
+  const userEmail = context.auth.token.email || null;
   
   try {
-    const apiKey = await generateApiKey(data.metadata);
+    const apiKey = await generateApiKey(userId, userEmail, data.metadata);
     
     return {
       apiKey: apiKey,
