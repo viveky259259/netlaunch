@@ -1,11 +1,11 @@
-import 'package:firebase_hosting_service/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
-import 'package:flutterkit/theme.dart';
 import 'package:flutterkit/kit/kit.dart';
-import 'screens/home_screen.dart';
+import 'theme/app_theme.dart';
+import 'screens/landing_screen.dart';
+import 'screens/dashboard_screen.dart';
 import 'services/storage_service.dart';
 import 'services/firestore_service.dart';
 import 'services/functions_service.dart';
@@ -14,7 +14,6 @@ import 'services/auth_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: 'AIzaSyCGFdR_W2fIX9bL9TMclqXglqhDj5b0eDc',
@@ -42,17 +41,16 @@ class MyApp extends StatelessWidget {
         Provider<AuthService>(create: (_) => AuthService()),
       ],
       child: MaterialApp(
-        title: 'Firebase Hosting Service',
-        theme: lightTheme,
-        darkTheme: darkTheme,
+        title: 'NetLaunch',
+        theme: netLaunchTheme,
         themeMode: ThemeMode.light,
+        debugShowCheckedModeBanner: false,
         home: const AuthWrapper(),
       ),
     );
   }
 }
 
-/// Wrapper that listens to auth state and shows appropriate screen
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({super.key});
 
@@ -61,22 +59,17 @@ class AuthWrapper extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
-        // Show loading while checking auth state
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(
-              child: UkSpinner(),
-            ),
+            body: Center(child: UkSpinner()),
           );
         }
 
-        // User is logged in
         if (snapshot.hasData && snapshot.data != null) {
-          return const HomeScreen();
+          return const DashboardScreen();
         }
 
-        // User is not logged in
-        return const LoginScreen();
+        return const LandingScreen();
       },
     );
   }
