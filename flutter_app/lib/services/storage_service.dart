@@ -137,21 +137,5 @@ class StorageService {
     return uploadTask.snapshotEvents;
   }
   
-  /// Legacy method - kept for backwards compatibility but use uploadZipFileWithProgressAsync instead
-  @Deprecated('Use uploadZipFileWithProgressAsync instead')
-  Stream<TaskSnapshot> uploadZipFileWithProgress(
-    String apiKey,
-    Uint8List fileData,
-    String fileName,
-  ) {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final uploadFileName = '${timestamp}_$fileName';
-    final path = 'uploads/$apiKey/$uploadFileName';
-
-    final ref = _storage.ref().child(path);
-    final uploadTask = ref.putData(fileData);
-
-    return uploadTask.snapshotEvents;
-  }
 }
 

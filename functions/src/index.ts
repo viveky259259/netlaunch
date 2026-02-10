@@ -11,6 +11,8 @@ import { deleteDeployment } from './functions/deleteDeployment';
 import { deleteUserDeployment } from './functions/deleteUserDeployment';
 import { getDeploymentStatus } from './functions/getDeploymentStatus';
 import { generateApiKeyFunction } from './functions/generateApiKey';
+import { trackPageViewHandler } from './functions/trackPageView';
+import { getDeploymentAnalytics } from './functions/getDeploymentAnalytics';
 
 // Storage trigger for file uploads
 // Uses the default Firebase Storage bucket for the project
@@ -27,4 +29,8 @@ export const listUserDeploymentsFunction = functions.https.onCall(listUserDeploy
 export const deleteDeploymentFunction = functions.https.onCall(deleteDeployment);
 export const deleteUserDeploymentFunction = functions.https.onCall(deleteUserDeployment);
 export const getDeploymentStatusFunction = functions.https.onCall(getDeploymentStatus);
+
+// Analytics
+export const trackPageView = functions.region('us-central1').https.onRequest(trackPageViewHandler);
+export const getDeploymentAnalyticsFunction = functions.https.onCall(getDeploymentAnalytics);
 

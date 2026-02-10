@@ -6,6 +6,29 @@ import * as zlib from 'zlib';
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID || 'deployinstantwebapp';
 
+const BEACON_TEMPLATE = `<script>(function(){var d='__SITE_ID__',u='https://us-central1-deployinstantwebapp.cloudfunctions.net/trackPageView';var p=location.pathname+location.search,r='';try{r=document.referrer?new URL(document.referrer).origin:''}catch(e){}var b='d='+encodeURIComponent(d)+'&p='+encodeURIComponent(p)+'&r='+encodeURIComponent(r)+'&w='+innerWidth+'&t='+Math.floor(Date.now()/1e3);if(navigator.sendBeacon){navigator.sendBeacon(u,b)}else{fetch(u,{method:'POST',body:b,keepalive:true})}})()</script>`;
+
+/**
+ * Inject analytics beacon script into HTML content
+ */
+function injectBeaconScript(content: Buffer, siteId: string): Buffer {
+  const html = content.toString('utf-8');
+  const script = BEACON_TEMPLATE.replace('__SITE_ID__', siteId);
+
+  // Try to inject before </body>, then </html>, then append
+  const bodyIdx = html.toLowerCase().lastIndexOf('</body>');
+  if (bodyIdx !== -1) {
+    return Buffer.from(html.slice(0, bodyIdx) + script + html.slice(bodyIdx), 'utf-8');
+  }
+
+  const htmlIdx = html.toLowerCase().lastIndexOf('</html>');
+  if (htmlIdx !== -1) {
+    return Buffer.from(html.slice(0, htmlIdx) + script + html.slice(htmlIdx), 'utf-8');
+  }
+
+  return Buffer.from(html + script, 'utf-8');
+}
+
 /**
  * Get access token for Firebase Hosting API
  */
@@ -149,8 +172,14 @@ export async function deployToFirebaseHosting(
   for (const file of files) {
     const relativePath = path.relative(extractPath, file);
     const hostingPath = `/${relativePath}`;
-    const content = fs.readFileSync(file);
-    
+    const rawContent = fs.readFileSync(file);
+
+    // Inject analytics beacon into HTML files
+    const ext = path.extname(file).toLowerCase();
+    const content: Buffer = (ext === '.html' || ext === '.htm')
+      ? injectBeaconScript(rawContent, siteId)
+      : Buffer.from(rawContent);
+
     const { hash, gzipped } = calculateGzipHash(content);
     fileMap[hostingPath] = hash;
     gzippedContents[hash] = gzipped;

@@ -1,5 +1,6 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import '../models/deployment.dart';
+import '../models/deployment_analytics.dart';
 
 class FunctionsService {
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
@@ -78,6 +79,26 @@ class FunctionsService {
       return deployments;
     } catch (e) {
       throw Exception('Failed to list deployments: $e');
+    }
+  }
+
+  /// Fetch analytics for a deployment
+  Future<DeploymentAnalytics> getDeploymentAnalytics(
+    String deploymentId, {
+    int days = 30,
+  }) async {
+    try {
+      final callable =
+          _functions.httpsCallable('getDeploymentAnalyticsFunction');
+      final result = await callable.call({
+        'deploymentId': deploymentId,
+        'days': days,
+      });
+
+      final data = result.data as Map<String, dynamic>;
+      return DeploymentAnalytics.fromMap(data);
+    } catch (e) {
+      throw Exception('Failed to get deployment analytics: $e');
     }
   }
 
