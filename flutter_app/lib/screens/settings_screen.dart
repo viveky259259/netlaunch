@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutterkit/kit/kit.dart';
 import '../services/functions_service.dart';
+import '../services/usage_service.dart';
 import '../services/user_preferences_service.dart';
 import '../theme/app_colors.dart';
 
@@ -16,14 +17,23 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _prefsService = UserPreferencesService();
+  final _usageService = UsageService();
   String? _lastApiKey;
   bool _isLoadingKey = true;
   bool _isGeneratingKey = false;
+  List<ApiKeyInfo>? _apiKeys;
+  bool _isLoadingApiKeys = true;
+  int _totalDeployments = 0;
+  bool _isLoadingDeployments = true;
+
+  static const int _freeDeploymentLimit = 50;
 
   @override
   void initState() {
     super.initState();
     _loadApiKey();
+    _loadApiKeysFromFirestore();
+    _loadDeploymentCount();
   }
 
   Future<void> _loadApiKey() async {
@@ -33,6 +43,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _lastApiKey = key;
         _isLoadingKey = false;
       });
+    }
+  }
+
+  Future<void> _loadApiKeysFromFirestore() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final keys = await _usageService.getUserApiKeys(user.uid);
+      if (mounted) {
+        setState(() {
+          _apiKeys = keys;
+          _isLoadingApiKeys = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingApiKeys = false);
+      }
+    }
+  }
+
+  Future<void> _loadDeploymentCount() async {
+    try {
+      final functionsService = Provider.of<FunctionsService>(context, listen: false);
+      final deployments = await functionsService.listUserDeployments();
+      if (mounted) {
+        setState(() {
+          _totalDeployments = deployments.length;
+          _isLoadingDeployments = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingDeployments = false);
+      }
     }
   }
 
@@ -49,6 +95,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('New API key generated and copied!'), backgroundColor: Colors.green),
         );
+        // Refresh the API keys list
+        _loadApiKeysFromFirestore();
       }
     } catch (e) {
       if (mounted) {
@@ -61,9 +109,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  String _formatDate(DateTime date) {
+    return '${date.month}/${date.day}/${date.year}';
+  }
+
+  String _formatRelativeDate(DateTime? date) {
+    if (date == null) return 'Never';
+    final diff = DateTime.now().difference(date);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+    if (diff.inDays < 1) return '${diff.inHours}h ago';
+    if (diff.inDays < 30) return '${diff.inDays}d ago';
+    return _formatDate(date);
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
+    final deploymentProgress = _totalDeployments / _freeDeploymentLimit;
 
     return Scaffold(
       backgroundColor: AppColors.lightGrayBg,
@@ -185,6 +248,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Show locally cached key for quick copy
                     if (_isLoadingKey)
                       const Center(child: UkSpinner())
                     else if (_lastApiKey != null) ...[
@@ -239,6 +303,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           style: TextStyle(color: AppColors.textSecondary),
                         ),
                       ),
+
+                    // Firestore API keys list
+                    if (_isLoadingApiKeys)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Center(child: UkSpinner()),
+                      )
+                    else if (_apiKeys != null && _apiKeys!.isNotEmpty) ...[
+                      const UkDivider(),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'All Keys',
+                        style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: AppColors.textSecondary),
+                      ),
+                      const SizedBox(height: 8),
+                      ...(_apiKeys!.map((key) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.lightGrayBg,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.key, size: 16, color: AppColors.textSecondary),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${key.keyHash.length > 12 ? key.keyHash.substring(0, 12) : key.keyHash}...',
+                                      style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Created ${_formatDate(key.createdAt)}  ·  ${key.usageCount} requests  ·  Last used ${_formatRelativeDate(key.lastUsed)}',
+                                      style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ))),
+                      const SizedBox(height: 8),
+                    ],
+
                     SizedBox(
                       width: double.infinity,
                       child: UkButton(
@@ -282,19 +396,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 20),
                     const Text(
-                      'Bandwidth Usage',
+                      'Deployments Used',
                       style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: AppColors.textSecondary),
                     ),
                     const SizedBox(height: 8),
-                    UkProgress(
-                      value: 0.12,
-                      variant: UkProgressVariant.primary,
-                      size: UkProgressSize.medium,
-                    ),
+                    _isLoadingDeployments
+                        ? UkProgress(
+                            value: 0,
+                            variant: UkProgressVariant.primary,
+                            size: UkProgressSize.medium,
+                          )
+                        : UkProgress(
+                            value: deploymentProgress.clamp(0.0, 1.0),
+                            variant: UkProgressVariant.primary,
+                            size: UkProgressSize.medium,
+                          ),
                     const SizedBox(height: 4),
-                    const Text(
-                      '1.2 GB / 10 GB',
-                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    Text(
+                      _isLoadingDeployments
+                          ? 'Loading...'
+                          : '$_totalDeployments / $_freeDeploymentLimit deployments',
+                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                     ),
                     const SizedBox(height: 20),
                     UkButton(

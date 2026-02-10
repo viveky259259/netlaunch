@@ -175,7 +175,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 FutureBuilder<List<Deployment>>(
                   future: _deploymentsFuture,
                   builder: (context, snapshot) {
-                    final count = snapshot.data?.where((d) => d.status == 'success').length ?? 0;
+                    final deployments = snapshot.data ?? [];
+                    final active = deployments.where((d) => d.status == 'success').length;
+                    final total = deployments.length;
+                    final successRate = total > 0 ? (active / total * 100).toStringAsFixed(1) : '0.0';
+                    final isLoading = snapshot.connectionState == ConnectionState.waiting;
                     return UkGrid(
                       gap: 16,
                       children: [
@@ -184,7 +188,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           md: 4,
                           child: StatsCard(
                             title: 'Active Deployments',
-                            value: snapshot.connectionState == ConnectionState.waiting ? '...' : '$count',
+                            value: isLoading ? '...' : '$active',
                             icon: Icons.cloud_done_outlined,
                             iconColor: AppColors.teal,
                           ),
@@ -192,18 +196,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         UkCol(
                           xs: 12,
                           md: 4,
-                          child: const StatsCard(
-                            title: 'Total Revenue',
-                            value: '\$0',
-                            icon: Icons.attach_money,
+                          child: StatsCard(
+                            title: 'Total Deployments',
+                            value: isLoading ? '...' : '$total',
+                            icon: Icons.layers_outlined,
                           ),
                         ),
                         UkCol(
                           xs: 12,
                           md: 4,
-                          child: const StatsCard(
-                            title: 'Uptime',
-                            value: '99.9%',
+                          child: StatsCard(
+                            title: 'Success Rate',
+                            value: isLoading ? '...' : '$successRate%',
                             icon: Icons.trending_up,
                             iconColor: AppColors.teal,
                           ),

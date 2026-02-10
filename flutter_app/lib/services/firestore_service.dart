@@ -19,22 +19,6 @@ class FirestoreService {
     });
   }
 
-  /// Legacy method - listen to deployments by API key
-  @Deprecated('Use listenToDeploymentsByUserId instead')
-  Stream<List<Deployment>> listenToDeployments(String apiKey) {
-    return _firestore
-        .collection('deployments')
-        .where('apiKey', isEqualTo: apiKey)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        final data = doc.data();
-        return Deployment.fromMap(data, doc.id);
-      }).toList();
-    });
-  }
-
   Future<Deployment?> getDeployment(String deploymentId) async {
     try {
       final doc = await _firestore.collection('deployments').doc(deploymentId).get();

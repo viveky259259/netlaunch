@@ -257,16 +257,18 @@ class _DashboardPreview extends StatelessWidget {
                     ),
                     child: const Column(
                       children: [
+                        Icon(Icons.bolt, size: 32, color: AppColors.teal),
+                        SizedBox(height: 4),
                         Text(
-                          '99.9%',
+                          'Instant',
                           style: TextStyle(
-                            fontSize: 28,
+                            fontSize: 20,
                             fontWeight: FontWeight.w800,
                             color: AppColors.teal,
                           ),
                         ),
                         Text(
-                          'Uptime',
+                          'Deploys',
                           style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
                         ),
                       ],

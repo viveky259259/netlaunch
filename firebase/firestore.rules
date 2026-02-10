@@ -29,5 +29,13 @@ service cloud.firestore {
       allow read: if false; // Read via Cloud Functions only for security
       allow write: if false; // Write via Cloud Functions only
     }
+
+    // Page view analytics — server-only access via Cloud Functions
+    match /pageViews/{siteId} {
+      allow read, write: if false;
+      match /{subcollection=**} {
+        allow read, write: if false;
+      }
+    }
   }
 }
