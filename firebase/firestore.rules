@@ -30,6 +30,11 @@ service cloud.firestore {
       allow write: if false; // Write via Cloud Functions only
     }
 
+    // Firebase configs (self-hosted) — Cloud Functions only, contains private keys
+    match /firebaseConfigs/{userId} {
+      allow read, write: if false;
+    }
+
     // Page view analytics — server-only access via Cloud Functions
     match /pageViews/{siteId} {
       allow read, write: if false;

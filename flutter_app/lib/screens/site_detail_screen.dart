@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutterkit/kit/kit.dart';
 import 'package:intl/intl.dart';
 import '../models/deployment.dart';
+import '../services/storage_service.dart';
+import '../services/user_preferences_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/status_badge.dart';
 import '../widgets/stats_card.dart';
@@ -9,13 +13,129 @@ import '../widgets/log_entry_widget.dart';
 import '../utils/url_launcher.dart';
 import '../widgets/analytics_section.dart';
 
-class SiteDetailScreen extends StatelessWidget {
+class SiteDetailScreen extends StatefulWidget {
   final Deployment deployment;
 
   const SiteDetailScreen({super.key, required this.deployment});
 
   @override
+  State<SiteDetailScreen> createState() => _SiteDetailScreenState();
+}
+
+class _SiteDetailScreenState extends State<SiteDetailScreen> {
+  bool _isRedeploying = false;
+  double _uploadProgress = 0.0;
+  String? _redeployError;
+
+  Future<void> _redeploy() async {
+    final storageService = Provider.of<StorageService>(context, listen: false);
+
+    // Pick ZIP file
+    final result = await storageService.pickZipFile();
+    if (result == null || result.files.single.bytes == null) return;
+
+    final file = result.files.single;
+
+    // Get API key from deployment or saved preferences
+    String apiKey = widget.deployment.apiKey;
+    if (apiKey.isEmpty) {
+      final prefsService = UserPreferencesService();
+      apiKey = await prefsService.getLastUsedApiKey() ?? '';
+    }
+    if (apiKey.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No API key found. Please deploy from the dashboard first.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    String siteName = widget.deployment.subdomain;
+    // Fallback: extract site name from URL (e.g. https://my-app.web.app/)
+    if (siteName.isEmpty && widget.deployment.url.isNotEmpty) {
+      final uri = Uri.tryParse(widget.deployment.url);
+      if (uri != null && uri.host.endsWith('.web.app')) {
+        siteName = uri.host.replaceAll('.web.app', '');
+      }
+    }
+    if (siteName.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot redeploy: no site name found.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _isRedeploying = true;
+      _uploadProgress = 0.0;
+      _redeployError = null;
+    });
+
+    try {
+      final uploadStream = await storageService.uploadZipFileWithProgressAsync(
+        apiKey,
+        file.bytes!,
+        file.name,
+        siteName,
+      );
+
+      uploadStream.listen(
+        (snapshot) {
+          if (mounted) {
+            setState(() {
+              _uploadProgress = snapshot.bytesTransferred / snapshot.totalBytes;
+            });
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            setState(() {
+              _isRedeploying = false;
+              _uploadProgress = 0.0;
+              _redeployError = error.toString();
+            });
+          }
+        },
+        onDone: () {
+          if (mounted) {
+            setState(() {
+              _isRedeploying = false;
+              _uploadProgress = 0.0;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Redeployment started! Your site will update shortly.'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            Navigator.of(context).pop(true);
+          }
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isRedeploying = false;
+          _uploadProgress = 0.0;
+          _redeployError = e.toString();
+        });
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final deployment = widget.deployment;
+
     return Scaffold(
       backgroundColor: AppColors.lightGrayBg,
       appBar: AppBar(
@@ -58,18 +178,42 @@ class SiteDetailScreen extends StatelessWidget {
                           ),
                         const SizedBox(width: 8),
                         UkButton(
-                          label: 'Redeploy',
+                          label: _isRedeploying ? 'Uploading...' : 'Redeploy',
                           variant: UkButtonVariant.outline,
                           size: UkButtonSize.small,
-                          icon: Icons.refresh,
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Redeploy coming soon!')),
-                            );
-                          },
+                          icon: _isRedeploying ? Icons.hourglass_top : Icons.refresh,
+                          onPressed: _isRedeploying ? null : _redeploy,
                         ),
                       ],
                     ),
+                    // Redeploy progress
+                    if (_isRedeploying) ...[
+                      const SizedBox(height: 16),
+                      UkProgress(
+                        value: _uploadProgress,
+                        variant: UkProgressVariant.primary,
+                        size: UkProgressSize.large,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Uploading: ${(_uploadProgress * 100).toStringAsFixed(1)}%',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                    // Redeploy error
+                    if (_redeployError != null) ...[
+                      const SizedBox(height: 12),
+                      UkAlert(
+                        message: _redeployError!,
+                        type: UkAlertType.danger,
+                        dismissible: true,
+                        onDismissed: () => setState(() => _redeployError = null),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     Text(
                       deployment.subdomain.isNotEmpty ? deployment.subdomain : 'Deployment',
@@ -264,6 +408,7 @@ class SiteDetailScreen extends StatelessWidget {
   }
 
   List<LogEntryWidget> _buildLogEntries() {
+    final deployment = widget.deployment;
     final timeFormat = DateFormat('HH:mm:ss');
     final entries = <LogEntryWidget>[];
 

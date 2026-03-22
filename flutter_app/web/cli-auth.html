@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NetLaunch CLI Login</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f6fa;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 48px;
+      max-width: 420px;
+      width: 90%;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      text-align: center;
+    }
+    .logo { font-size: 32px; margin-bottom: 8px; }
+    h1 { font-size: 22px; color: #1a1a2e; margin-bottom: 8px; }
+    p { color: #666; font-size: 14px; line-height: 1.6; margin-bottom: 24px; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 28px;
+      background: #1a1a2e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #2d2d4e; }
+    .btn:disabled { background: #999; cursor: not-allowed; }
+    .btn img { width: 20px; height: 20px; }
+    .status { margin-top: 20px; font-size: 13px; color: #666; }
+    .status.success { color: #00b894; }
+    .status.error { color: #e74c3c; }
+    .spinner {
+      display: inline-block;
+      width: 18px; height: 18px;
+      border: 2px solid #ccc;
+      border-top-color: #1a1a2e;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">&#128640;</div>
+    <h1>NetLaunch CLI</h1>
+    <p>Sign in with your Google account to authenticate the NetLaunch CLI.</p>
+    <button class="btn" id="loginBtn" onclick="signIn()">
+      <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Sign in with Google
+    </button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+    import { getAuth, signInWithPopup, GoogleAuthProvider } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCGFdR_W2fIX9bL9TMclqXglqhDj5b0eDc",
+      authDomain: "deployinstantwebapp.firebaseapp.com",
+      projectId: "deployinstantwebapp",
+      storageBucket: "deployinstantwebapp.firebasestorage.app",
+      messagingSenderId: "42298011440",
+      appId: "1:42298011440:web:37416c5d27d5a4bfaf62f5"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+
+    // Get the callback port from URL params
+    const params = new URLSearchParams(window.location.search);
+    const port = params.get('port');
+
+    if (!port) {
+      document.getElementById('status').textContent = 'Error: No callback port specified. Run "netlaunch login" from the CLI.';
+      document.getElementById('status').className = 'status error';
+      document.getElementById('loginBtn').disabled = true;
+    }
+
+    window.signIn = async function() {
+      const btn = document.getElementById('loginBtn');
+      const status = document.getElementById('status');
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Signing in...';
+      status.textContent = '';
+
+      try {
+        const provider = new GoogleAuthProvider();
+        const result = await signInWithPopup(auth, provider);
+        const user = result.user;
+        const idToken = await user.getIdToken();
+
+        status.textContent = 'Authenticated! Redirecting to CLI...';
+        status.className = 'status success';
+
+        // Send token back to CLI's local server
+        const callbackUrl = `http://localhost:${port}/callback`;
+        const res = await fetch(callbackUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            idToken,
+            refreshToken: user.refreshToken,
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName,
+          }),
+        });
+
+        if (res.ok) {
+          status.textContent = 'Login successful! You can close this tab.';
+          btn.innerHTML = '&#10003; Authenticated';
+        } else {
+          throw new Error('Failed to send token to CLI');
+        }
+      } catch (err) {
+        console.error(err);
+        status.textContent = 'Error: ' + (err.message || 'Sign-in failed');
+        status.className = 'status error';
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg> Retry Sign In';
+      }
+    };
+  </script>
+</body>
+</html>

@@ -8,6 +8,10 @@
     ],
     "rewrites": [
       {
+        "source": "/cli-auth.html",
+        "destination": "/cli-auth.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

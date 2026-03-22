@@ -3,7 +3,7 @@ import * as admin from 'firebase-admin';
 import * as crypto from 'crypto';
 import { validateApiKey, getUserIdFromApiKey } from '../services/apiKeyService';
 import { downloadZipFile, extractZip, validateExtractedFiles, cleanupTempFiles } from '../services/fileProcessor';
-import { deployToFirebaseHosting, uploadFilesForHosting } from '../services/firebaseDeployer';
+import { deployToFirebaseHosting, uploadFilesForHosting, getUserFirebaseConfig } from '../services/firebaseDeployer';
 
 /**
  * Look up the API key and site name from fileUploadRequests collection by file path
@@ -145,9 +145,15 @@ export const onFileUpload = async (object: functions.storage.ObjectMetadata): Pr
     
     // Upload files for hosting
     await uploadFilesForHosting(contentPath, deploymentId);
-    
+
+    // Check if user has a self-hosted Firebase config
+    const userConfig = userId ? await getUserFirebaseConfig(userId) : null;
+    if (userConfig) {
+      console.log(`Using self-hosted config for project: ${userConfig.projectId}`);
+    }
+
     // Deploy to Firebase Hosting with user's chosen site name
-    const finalUrl = await deployToFirebaseHosting(contentPath, siteName, deploymentId);
+    const finalUrl = await deployToFirebaseHosting(contentPath, siteName, deploymentId, userConfig || undefined);
     
     // Update deployment status to success
     await db.collection('deployments').doc(deploymentId).update({

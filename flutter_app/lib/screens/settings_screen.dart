@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutterkit/kit/kit.dart';
 import '../services/functions_service.dart';
 import '../services/usage_service.dart';
@@ -26,6 +27,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _totalDeployments = 0;
   bool _isLoadingDeployments = true;
 
+  // Firebase config state
+  bool _isLoadingConfig = true;
+  bool _isSavingConfig = false;
+  bool _isDeletingConfig = false;
+  bool _hasFirebaseConfig = false;
+  String? _configProjectId;
+  String? _configClientEmail;
+  String? _configSavedAt;
+
   static const int _freeDeploymentLimit = 50;
 
   @override
@@ -34,6 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadApiKey();
     _loadApiKeysFromFirestore();
     _loadDeploymentCount();
+    _loadFirebaseConfig();
   }
 
   Future<void> _loadApiKey() async {
@@ -106,6 +117,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } finally {
       if (mounted) setState(() => _isGeneratingKey = false);
+    }
+  }
+
+  Future<void> _loadFirebaseConfig() async {
+    try {
+      final functionsService = Provider.of<FunctionsService>(context, listen: false);
+      final config = await functionsService.getFirebaseConfig();
+      if (mounted) {
+        setState(() {
+          _hasFirebaseConfig = config['hasConfig'] == true;
+          _configProjectId = config['projectId'];
+          _configClientEmail = config['clientEmail'];
+          _configSavedAt = config['savedAt'];
+          _isLoadingConfig = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingConfig = false);
+    }
+  }
+
+  Future<void> _uploadFirebaseConfig() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+      withData: true,
+    );
+    if (result == null || result.files.single.bytes == null) return;
+
+    final jsonString = String.fromCharCodes(result.files.single.bytes!);
+
+    setState(() => _isSavingConfig = true);
+
+    try {
+      final functionsService = Provider.of<FunctionsService>(context, listen: false);
+      final response = await functionsService.saveFirebaseConfig(jsonString);
+      if (mounted) {
+        setState(() {
+          _hasFirebaseConfig = true;
+          _configProjectId = response['projectId'];
+          _configClientEmail = response['clientEmail'];
+          _isSavingConfig = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Firebase config saved for project "${response['projectId']}"'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSavingConfig = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _removeFirebaseConfig() async {
+    setState(() => _isDeletingConfig = true);
+    try {
+      final functionsService = Provider.of<FunctionsService>(context, listen: false);
+      await functionsService.deleteFirebaseConfig();
+      if (mounted) {
+        setState(() {
+          _hasFirebaseConfig = false;
+          _configProjectId = null;
+          _configClientEmail = null;
+          _configSavedAt = null;
+          _isDeletingConfig = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Firebase config removed. Deploys will use NetLaunch hosting.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isDeletingConfig = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -365,6 +460,119 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(height: 32),
+
+              // Firebase Configuration Section
+              const Text(
+                'Firebase Configuration',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Deploy to your own Firebase project instead of NetLaunch hosting.',
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppColors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.cardBorder),
+                ),
+                child: _isLoadingConfig
+                    ? const Center(child: UkSpinner())
+                    : _hasFirebaseConfig
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.cloud_done, color: AppColors.teal, size: 20),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Self-Hosted Mode Active',
+                                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: AppColors.teal),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: AppColors.lightGrayBg,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Project: $_configProjectId',
+                                      style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Account: $_configClientEmail',
+                                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: AppColors.textSecondary),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'All your deployments will go to this Firebase project.',
+                                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  UkButton(
+                                    label: 'Update Config',
+                                    variant: UkButtonVariant.outline,
+                                    size: UkButtonSize.small,
+                                    icon: Icons.upload_file,
+                                    onPressed: _isSavingConfig ? null : _uploadFirebaseConfig,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  UkButton(
+                                    label: _isDeletingConfig ? 'Removing...' : 'Remove',
+                                    variant: UkButtonVariant.text,
+                                    size: UkButtonSize.small,
+                                    icon: Icons.delete_outline,
+                                    onPressed: _isDeletingConfig ? null : _removeFirebaseConfig,
+                                  ),
+                                ],
+                              ),
+                            ],
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'No Firebase config set. Deploys go to NetLaunch hosting.',
+                                style: TextStyle(color: AppColors.textSecondary),
+                              ),
+                              const SizedBox(height: 16),
+                              UkAlert(
+                                message: 'To self-host: Go to Firebase Console → Project Settings → Service accounts → Generate new private key. Upload the JSON file below.',
+                                type: UkAlertType.info,
+                                dismissible: false,
+                              ),
+                              const SizedBox(height: 16),
+                              SizedBox(
+                                width: double.infinity,
+                                child: UkButton(
+                                  label: _isSavingConfig ? 'Validating...' : 'Upload Service Account JSON',
+                                  variant: UkButtonVariant.primary,
+                                  size: UkButtonSize.medium,
+                                  icon: _isSavingConfig ? null : Icons.upload_file,
+                                  onPressed: _isSavingConfig ? null : _uploadFirebaseConfig,
+                                ),
+                              ),
+                            ],
+                          ),
               ),
               const SizedBox(height: 32),
 

@@ -27,7 +27,7 @@ class Deployment {
     return Deployment(
       id: id,
       apiKey: map['apiKey'] ?? '',
-      subdomain: map['subdomain'] ?? '',
+      subdomain: map['subdomain'] ?? map['siteName'] ?? '',
       url: map['url'] ?? '',
       status: map['status'] ?? 'pending',
       createdAt: map['createdAt'] != null
