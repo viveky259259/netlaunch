@@ -1,6 +1,6 @@
 {
   "name": "netlaunch",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Deploy static sites in seconds. Zero config, instant URLs.",
   "bin": {
     "netlaunch": "index.js"
@@ -20,7 +20,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nicenemo/firebase_hosting_service.git"
+    "url": "git+https://github.com/viveky259259/netlaunch.git"
   },
   "homepage": "https://deployinstantwebapp.web.app",
   "author": "Vivek Yadav",
