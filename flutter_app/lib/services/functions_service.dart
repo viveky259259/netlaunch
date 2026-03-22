@@ -102,6 +102,40 @@ class FunctionsService {
     }
   }
 
+  /// Save Firebase config for self-hosted deployments
+  Future<Map<String, dynamic>> saveFirebaseConfig(String serviceAccountJson) async {
+    try {
+      final callable = _functions.httpsCallable('saveFirebaseConfigFunction');
+      final result = await callable.call({
+        'serviceAccountJson': serviceAccountJson,
+      });
+      return result.data as Map<String, dynamic>;
+    } catch (e) {
+      throw Exception('Failed to save Firebase config: $e');
+    }
+  }
+
+  /// Get user's saved Firebase config (returns projectId, clientEmail — not the key)
+  Future<Map<String, dynamic>> getFirebaseConfig() async {
+    try {
+      final callable = _functions.httpsCallable('getFirebaseConfigFunction');
+      final result = await callable.call({});
+      return result.data as Map<String, dynamic>;
+    } catch (e) {
+      throw Exception('Failed to get Firebase config: $e');
+    }
+  }
+
+  /// Delete user's saved Firebase config
+  Future<void> deleteFirebaseConfig() async {
+    try {
+      final callable = _functions.httpsCallable('deleteFirebaseConfigFunction');
+      await callable.call({});
+    } catch (e) {
+      throw Exception('Failed to delete Firebase config: $e');
+    }
+  }
+
   /// Delete a deployment for the authenticated user (requires login)
   Future<void> deleteUserDeployment(String deploymentId) async {
     try {
