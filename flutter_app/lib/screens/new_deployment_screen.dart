@@ -590,10 +590,10 @@ class _MethodCard extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: selected ? AppColors.darkNavy : AppColors.white,
+              color: selected ? AppColors.teal : AppColors.white,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: selected ? AppColors.darkNavy : AppColors.cardBorder,
+                color: selected ? AppColors.teal : AppColors.cardBorder,
               ),
             ),
             child: Column(

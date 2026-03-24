@@ -1,0 +1,2 @@
+## Phase 1 Summary
+Scope EXPANSION chosen. Building full self-hosted deployment: users provide Firebase service account JSON, NetLaunch deploys to their project. Two modes: "NetLaunch Hosted" (default) and "Self-Hosted" (user's Firebase). Service account keys stored encrypted in Firestore. Deployer refactored to accept arbitrary project credentials. CLI gets `config` command, dashboard gets Firebase config UI.

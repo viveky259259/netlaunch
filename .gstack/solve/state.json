@@ -1,0 +1,24 @@
+{
+  "problem": "Allow users to provide their own Firebase project configuration so NetLaunch deploys to THEIR Firebase Hosting, not ours. Self-hosted deployment.",
+  "type": "feature",
+  "started_at": "2026-03-22T13:30:00Z",
+  "completed_at": "2026-03-22T14:30:00Z",
+  "current_phase": 6,
+  "phases": {
+    "think": { "status": "completed", "completed_at": "2026-03-22T13:35:00Z", "artifact": "think-output.md" },
+    "plan": { "status": "completed", "completed_at": "2026-03-22T13:40:00Z", "artifact": "plan-output.md" },
+    "build": { "status": "completed", "completed_at": "2026-03-22T14:10:00Z", "artifact": "build-output.md" },
+    "review": { "status": "completed", "completed_at": "2026-03-22T14:20:00Z", "artifact": "review-output.md" },
+    "test": { "status": "skipped" },
+    "ship": { "status": "completed", "completed_at": "2026-03-22T14:30:00Z", "artifact": "ship-output.md" }
+  },
+  "decisions": [
+    { "phase": "think", "issue": "scope", "choice": "SCOPE EXPANSION — full self-hosted platform", "at": "2026-03-22T13:35:00Z" },
+    { "phase": "think", "issue": "config-persistence", "choice": "Set once, use forever — not per-deploy", "at": "2026-03-22T13:37:00Z" },
+    { "phase": "think", "issue": "config-storage", "choice": "Two-tier: local + synced to server with --sync", "at": "2026-03-22T13:38:00Z" },
+    { "phase": "review", "issue": "firestore-rules-missing", "choice": "Fixed — added deny-all rules for firebaseConfigs", "at": "2026-03-22T14:18:00Z" },
+    { "phase": "review", "issue": "plaintext-private-key", "choice": "Acknowledged — acceptable for V1, encrypt in follow-up", "at": "2026-03-22T14:19:00Z" }
+  ],
+  "loop_count": { "build": 0, "review": 0, "test": 0 },
+  "branch": "solve/self-hosted-deploy"
+}
