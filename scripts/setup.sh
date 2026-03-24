@@ -57,7 +57,7 @@ replace_placeholder() {
     -not -path '*/build/*' \
     -not -path '*/.git/*' \
     -not -path '*/functions/lib/*' \
-    \( -name '*.dart' -o -name '*.ts' -o -name '*.js' -o -name '*.html' -o -name '*.json' \) \
+    \( -name '*.dart' -o -name '*.ts' -o -name '*.js' -o -name '*.html' -o -name '*.json' -o -name '.firebaserc' \) \
     -exec sed -i '' "s|${placeholder}|${value}|g" {} +
 }
 
