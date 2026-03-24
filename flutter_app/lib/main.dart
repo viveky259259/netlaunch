@@ -41,7 +41,8 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'NetLaunch',
         theme: netLaunchTheme,
-        themeMode: ThemeMode.light,
+        darkTheme: netLaunchTheme,
+        themeMode: ThemeMode.dark,
         debugShowCheckedModeBanner: false,
         home: const AuthWrapper(),
       ),

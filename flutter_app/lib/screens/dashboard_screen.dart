@@ -97,7 +97,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             PopupMenuButton<String>(
               icon: CircleAvatar(
                 radius: 16,
-                backgroundColor: AppColors.darkNavy,
+                backgroundColor: AppColors.teal,
                 child: user.photoUrl != null
                     ? ClipOval(
                         child: Image.network(
@@ -328,7 +328,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _navigateToNewDeployment,
-        backgroundColor: AppColors.darkNavy,
+        backgroundColor: AppColors.teal,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('Deploy'),

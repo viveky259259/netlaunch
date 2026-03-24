@@ -265,7 +265,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         CircleAvatar(
                           radius: 28,
-                          backgroundColor: AppColors.darkNavy,
+                          backgroundColor: AppColors.teal,
                           child: user?.photoUrl != null
                               ? ClipOval(
                                   child: Image.network(

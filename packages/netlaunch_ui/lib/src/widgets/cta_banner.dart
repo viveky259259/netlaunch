@@ -44,7 +44,7 @@ class CtaBanner extends StatelessWidget {
             icon: const Icon(Icons.add, size: 18),
             label: const Text('New Upload'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
+              backgroundColor: const Color(0xFFFFFFFF),
               foregroundColor: AppColors.teal,
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
