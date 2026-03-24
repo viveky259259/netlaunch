@@ -1,14 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutterkit/kit/kit.dart';
-import '../services/auth_service.dart';
-import '../services/functions_service.dart';
-import '../models/deployment.dart';
-import '../theme/app_colors.dart';
-import '../widgets/stats_card.dart';
-import '../widgets/deployment_list_item.dart';
-import '../widgets/cta_banner.dart';
+import 'package:netlaunch_auth/netlaunch_auth.dart';
+import 'package:netlaunch_api/netlaunch_api.dart';
+import 'package:netlaunch_core/netlaunch_core.dart';
+import 'package:netlaunch_ui/netlaunch_ui.dart';
 import 'new_deployment_screen.dart';
 import 'site_detail_screen.dart';
 import 'settings_screen.dart';
@@ -60,13 +56,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _signOut() async {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    await authService.signOut();
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    await auth.signOut();
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
 
     return Scaffold(
       backgroundColor: AppColors.lightGrayBg,
@@ -102,10 +98,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               icon: CircleAvatar(
                 radius: 16,
                 backgroundColor: AppColors.darkNavy,
-                child: user.photoURL != null
+                child: user.photoUrl != null
                     ? ClipOval(
                         child: Image.network(
-                          user.photoURL!,
+                          user.photoUrl!,
                           width: 32,
                           height: 32,
                           fit: BoxFit.cover,

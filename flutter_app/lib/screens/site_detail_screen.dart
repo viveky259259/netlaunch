@@ -3,13 +3,10 @@ import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutterkit/kit/kit.dart';
 import 'package:intl/intl.dart';
-import '../models/deployment.dart';
-import '../services/storage_service.dart';
-import '../services/user_preferences_service.dart';
-import '../theme/app_colors.dart';
-import '../widgets/status_badge.dart';
-import '../widgets/stats_card.dart';
-import '../widgets/log_entry_widget.dart';
+import 'package:netlaunch_core/netlaunch_core.dart';
+import 'package:netlaunch_api/netlaunch_api.dart';
+import 'package:netlaunch_auth/netlaunch_auth.dart';
+import 'package:netlaunch_ui/netlaunch_ui.dart';
 import '../utils/url_launcher.dart';
 import '../widgets/analytics_section.dart';
 
@@ -39,7 +36,9 @@ class _SiteDetailScreenState extends State<SiteDetailScreen> {
     // Get API key from deployment or saved preferences
     String apiKey = widget.deployment.apiKey;
     if (apiKey.isEmpty) {
-      final prefsService = UserPreferencesService();
+      final prefsService = UserPreferencesService(
+        Provider.of<AuthProvider>(context, listen: false),
+      );
       apiKey = await prefsService.getLastUsedApiKey() ?? '';
     }
     if (apiKey.isEmpty) {

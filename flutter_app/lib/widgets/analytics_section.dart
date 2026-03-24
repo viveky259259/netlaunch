@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutterkit/kit/kit.dart';
 import 'package:intl/intl.dart';
-import '../models/deployment_analytics.dart';
-import '../services/functions_service.dart';
-import '../theme/app_colors.dart';
-import 'stats_card.dart';
+import 'package:netlaunch_core/netlaunch_core.dart';
+import 'package:netlaunch_api/netlaunch_api.dart';
+import 'package:netlaunch_ui/netlaunch_ui.dart';
 
 class AnalyticsSection extends StatefulWidget {
   final String deploymentId;

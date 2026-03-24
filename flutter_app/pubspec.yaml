@@ -11,7 +11,17 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
 
-  # Firebase
+  # NetLaunch packages
+  netlaunch_core:
+    path: ../packages/netlaunch_core
+  netlaunch_auth:
+    path: ../packages/netlaunch_auth
+  netlaunch_api:
+    path: ../packages/netlaunch_api
+  netlaunch_ui:
+    path: ../packages/netlaunch_ui
+
+  # Firebase (still needed for Firebase.initializeApp in main.dart)
   firebase_core: ^3.6.0
   firebase_auth: ^5.3.0
   firebase_storage: ^12.3.4

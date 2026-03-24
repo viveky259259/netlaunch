@@ -16,12 +16,12 @@ void main() async {
 
   await Firebase.initializeApp(
     options: const FirebaseOptions(
-      apiKey: 'AIzaSyCGFdR_W2fIX9bL9TMclqXglqhDj5b0eDc',
-      appId: '1:42298011440:web:37416c5d27d5a4bfaf62f5',
-      messagingSenderId: '42298011440',
-      projectId: 'deployinstantwebapp',
-      storageBucket: 'deployinstantwebapp.firebasestorage.app',
-      authDomain: 'deployinstantwebapp.firebaseapp.com',
+      apiKey: 'FIREBASE_API_KEY_PLACEHOLDER',
+      appId: 'FIREBASE_APP_ID_PLACEHOLDER',
+      messagingSenderId: 'FIREBASE_MESSAGING_SENDER_ID_PLACEHOLDER',
+      projectId: 'FIREBASE_PROJECT_ID_PLACEHOLDER',
+      storageBucket: 'FIREBASE_STORAGE_BUCKET_PLACEHOLDER',
+      authDomain: 'FIREBASE_AUTH_DOMAIN_PLACEHOLDER',
     ),
   );
 

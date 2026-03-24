@@ -1,6 +1,5 @@
 import 'package:cloud_functions/cloud_functions.dart';
-import '../models/deployment.dart';
-import '../models/deployment_analytics.dart';
+import 'package:netlaunch_core/netlaunch_core.dart';
 
 class FunctionsService {
   final FirebaseFunctions _functions = FirebaseFunctions.instance;

@@ -5,9 +5,9 @@ import * as crypto from 'crypto';
 import * as zlib from 'zlib';
 import { JWT } from 'google-auth-library';
 
-const DEFAULT_PROJECT_ID = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID || 'deployinstantwebapp';
+const DEFAULT_PROJECT_ID = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID || 'FIREBASE_PROJECT_ID_PLACEHOLDER';
 
-const BEACON_TEMPLATE = `<script>(function(){var d='__SITE_ID__',u='https://us-central1-deployinstantwebapp.cloudfunctions.net/trackPageView';var p=location.pathname+location.search,r='';try{r=document.referrer?new URL(document.referrer).origin:''}catch(e){}var b='d='+encodeURIComponent(d)+'&p='+encodeURIComponent(p)+'&r='+encodeURIComponent(r)+'&w='+innerWidth+'&t='+Math.floor(Date.now()/1e3);if(navigator.sendBeacon){navigator.sendBeacon(u,b)}else{fetch(u,{method:'POST',body:b,keepalive:true})}})()</script>`;
+const BEACON_TEMPLATE = `<script>(function(){var d='__SITE_ID__',u='https://us-central1-FIREBASE_PROJECT_ID_PLACEHOLDER.cloudfunctions.net/trackPageView';var p=location.pathname+location.search,r='';try{r=document.referrer?new URL(document.referrer).origin:''}catch(e){}var b='d='+encodeURIComponent(d)+'&p='+encodeURIComponent(p)+'&r='+encodeURIComponent(r)+'&w='+innerWidth+'&t='+Math.floor(Date.now()/1e3);if(navigator.sendBeacon){navigator.sendBeacon(u,b)}else{fetch(u,{method:'POST',body:b,keepalive:true})}})()</script>`;
 
 /**
  * User-provided Firebase project configuration (service account key).

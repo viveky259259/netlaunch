@@ -1,0 +1,19 @@
+name: netlaunch_auth
+description: Authentication abstraction for NetLaunch. Provider-agnostic auth interface with Firebase implementation.
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+  flutter: '>=3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  firebase_auth: ^5.3.0
+  google_sign_in: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0

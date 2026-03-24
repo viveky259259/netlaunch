@@ -3,10 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutterkit/kit/kit.dart';
-import '../services/storage_service.dart';
-import '../services/functions_service.dart';
-import '../services/user_preferences_service.dart';
-import '../theme/app_colors.dart';
+import 'package:netlaunch_api/netlaunch_api.dart';
+import 'package:netlaunch_auth/netlaunch_auth.dart';
+import 'package:netlaunch_ui/netlaunch_ui.dart';
 
 class NewDeploymentScreen extends StatefulWidget {
   const NewDeploymentScreen({super.key});
@@ -18,7 +17,7 @@ class NewDeploymentScreen extends StatefulWidget {
 class _NewDeploymentScreenState extends State<NewDeploymentScreen> {
   final _siteNameController = TextEditingController();
   final _apiKeyController = TextEditingController();
-  final _prefsService = UserPreferencesService();
+  UserPreferencesService? _prefsService;
   String? _selectedFileName;
   PlatformFile? _selectedFile;
   bool _isUploading = false;
@@ -28,14 +27,20 @@ class _NewDeploymentScreenState extends State<NewDeploymentScreen> {
   String? _uploadError;
   int _selectedMethod = 1; // 0=URL, 1=ZIP, 2=CLI
 
+  UserPreferencesService _getPrefsService() {
+    return _prefsService ??= UserPreferencesService(
+      Provider.of<AuthProvider>(context, listen: false),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadSavedApiKey();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadSavedApiKey());
   }
 
   Future<void> _loadSavedApiKey() async {
-    final savedKey = await _prefsService.getLastUsedApiKey();
+    final savedKey = await _getPrefsService().getLastUsedApiKey();
     if (savedKey != null && mounted) {
       setState(() => _apiKeyController.text = savedKey);
     }
@@ -72,7 +77,7 @@ class _NewDeploymentScreenState extends State<NewDeploymentScreen> {
     try {
       final functionsService = Provider.of<FunctionsService>(context, listen: false);
       final apiKey = await functionsService.generateApiKey();
-      await _prefsService.saveLastUsedApiKey(apiKey);
+      await _getPrefsService().saveLastUsedApiKey(apiKey);
       if (mounted) {
         setState(() => _apiKeyController.text = apiKey);
         await Clipboard.setData(ClipboardData(text: apiKey));
@@ -145,7 +150,7 @@ class _NewDeploymentScreenState extends State<NewDeploymentScreen> {
           }
         },
         onDone: () async {
-          await _prefsService.saveLastUsedApiKey(_apiKeyController.text);
+          await _getPrefsService().saveLastUsedApiKey(_apiKeyController.text);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(

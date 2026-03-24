@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutterkit/kit/kit.dart';
-import '../services/auth_service.dart';
-import '../theme/app_colors.dart';
-import '../widgets/feature_card.dart';
+import 'package:netlaunch_auth/netlaunch_auth.dart';
+import 'package:netlaunch_ui/netlaunch_ui.dart';
 
 class LandingScreen extends StatelessWidget {
   const LandingScreen({super.key});
@@ -34,7 +33,7 @@ class LandingScreen extends StatelessWidget {
   }
 
   Future<void> _signInWithGoogle(BuildContext context) async {
-    final authService = Provider.of<AuthService>(context, listen: false);
+    final authService = Provider.of<AuthProvider>(context, listen: false);
     try {
       await authService.signInWithGoogle();
     } catch (e) {
@@ -442,7 +441,7 @@ class _SignInDialogState extends State<_SignInDialog> {
     });
 
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
+      final authService = Provider.of<AuthProvider>(context, listen: false);
       if (_isRegistering) {
         await authService.registerWithEmail(
           _emailController.text.trim(),
@@ -469,7 +468,7 @@ class _SignInDialogState extends State<_SignInDialog> {
     });
 
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
+      final authService = Provider.of<AuthProvider>(context, listen: false);
       await authService.signInWithGoogle();
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -491,7 +490,7 @@ class _SignInDialogState extends State<_SignInDialog> {
     });
 
     try {
-      final authService = Provider.of<AuthService>(context, listen: false);
+      final authService = Provider.of<AuthProvider>(context, listen: false);
       await authService.sendPasswordResetEmail(_emailController.text.trim());
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
