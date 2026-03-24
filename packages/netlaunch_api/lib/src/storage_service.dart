@@ -1,12 +1,15 @@
 import 'dart:typed_data';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:netlaunch_auth/netlaunch_auth.dart';
 
 class StorageService {
   final FirebaseStorage _storage = FirebaseStorage.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final AuthProvider _auth;
+
+  StorageService(this._auth);
 
   /// Creates a file upload request document in Firestore before uploading
   /// This stores the API key and site name securely so the Cloud Function can retrieve it
@@ -16,7 +19,7 @@ class StorageService {
     required String fileName,
     required String siteName,
   }) async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _auth.currentUser;
     
     final doc = await _firestore.collection('fileUploadRequests').add({
       'apiKey': apiKey,
@@ -64,7 +67,7 @@ class StorageService {
         throw Exception(validationError);
       }
       
-      final user = FirebaseAuth.instance.currentUser;
+      final user = _auth.currentUser;
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final uploadFileName = '${timestamp}_$fileName';
       final userId = user?.uid ?? 'anonymous';
@@ -117,7 +120,7 @@ class StorageService {
       throw Exception(validationError);
     }
     
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _auth.currentUser;
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final uploadFileName = '${timestamp}_$fileName';
     final userId = user?.uid ?? 'anonymous';

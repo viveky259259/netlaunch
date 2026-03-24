@@ -6,9 +6,9 @@ const http = require('http');
 const https = require('https');
 const { exec } = require('child_process');
 
-const DEPLOY_URL = 'https://us-central1-deployinstantwebapp.cloudfunctions.net/cliDeploy';
-const AUTH_PAGE = 'https://deployinstantwebapp.web.app/cli-auth.html';
-const FIREBASE_API_KEY = 'AIzaSyCGFdR_W2fIX9bL9TMclqXglqhDj5b0eDc';
+const DEPLOY_URL = 'https://us-central1-FIREBASE_PROJECT_ID_PLACEHOLDER.cloudfunctions.net/cliDeploy';
+const AUTH_PAGE = 'https://FIREBASE_PROJECT_ID_PLACEHOLDER.web.app/cli-auth.html';
+const FIREBASE_API_KEY = 'FIREBASE_API_KEY_PLACEHOLDER';
 const CREDS_DIR = path.join(require('os').homedir(), '.netlaunch');
 const CREDS_FILE = path.join(CREDS_DIR, 'credentials.json');
 const CONFIG_FILE = path.join(CREDS_DIR, 'firebase-config.json');
@@ -176,7 +176,7 @@ function callFirebaseFunction(functionName, data, idToken) {
   return new Promise((resolve, reject) => {
     const postData = JSON.stringify({ data });
     const req = https.request({
-      hostname: 'us-central1-deployinstantwebapp.cloudfunctions.net',
+      hostname: 'us-central1-FIREBASE_PROJECT_ID_PLACEHOLDER.cloudfunctions.net',
       path: `/${functionName}`,
       method: 'POST',
       headers: {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../models/deployment.dart';
-import '../theme/app_colors.dart';
+import 'package:netlaunch_core/netlaunch_core.dart';
+import 'package:netlaunch_ui/src/theme/app_colors.dart';
 import 'status_badge.dart';
 
 class DeploymentListItem extends StatelessWidget {

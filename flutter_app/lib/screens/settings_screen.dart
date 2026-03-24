@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:netlaunch_auth/netlaunch_auth.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutterkit/kit/kit.dart';
-import '../services/functions_service.dart';
-import '../services/usage_service.dart';
-import '../services/user_preferences_service.dart';
-import '../theme/app_colors.dart';
+import 'package:netlaunch_api/netlaunch_api.dart';
+import 'package:netlaunch_ui/netlaunch_ui.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -17,7 +15,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _prefsService = UserPreferencesService();
+  UserPreferencesService? _prefsService;
   final _usageService = UsageService();
   String? _lastApiKey;
   bool _isLoadingKey = true;
@@ -38,17 +36,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   static const int _freeDeploymentLimit = 50;
 
+  UserPreferencesService _getPrefsService() {
+    return _prefsService ??= UserPreferencesService(
+      Provider.of<AuthProvider>(context, listen: false),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadApiKey();
-    _loadApiKeysFromFirestore();
-    _loadDeploymentCount();
-    _loadFirebaseConfig();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadApiKey();
+      _loadApiKeysFromFirestore();
+      _loadDeploymentCount();
+      _loadFirebaseConfig();
+    });
   }
 
   Future<void> _loadApiKey() async {
-    final key = await _prefsService.getLastUsedApiKey();
+    final key = await _getPrefsService().getLastUsedApiKey();
     if (mounted) {
       setState(() {
         _lastApiKey = key;
@@ -58,7 +64,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadApiKeysFromFirestore() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
     if (user == null) return;
 
     try {
@@ -99,7 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final functionsService = Provider.of<FunctionsService>(context, listen: false);
       final apiKey = await functionsService.generateApiKey();
-      await _prefsService.saveLastUsedApiKey(apiKey);
+      await _getPrefsService().saveLastUsedApiKey(apiKey);
       if (mounted) {
         setState(() => _lastApiKey = apiKey);
         await Clipboard.setData(ClipboardData(text: apiKey));
@@ -220,7 +226,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Provider.of<AuthProvider>(context, listen: false).currentUser;
     final deploymentProgress = _totalDeployments / _freeDeploymentLimit;
 
     return Scaffold(
@@ -260,10 +266,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         CircleAvatar(
                           radius: 28,
                           backgroundColor: AppColors.darkNavy,
-                          child: user?.photoURL != null
+                          child: user?.photoUrl != null
                               ? ClipOval(
                                   child: Image.network(
-                                    user!.photoURL!,
+                                    user!.photoUrl!,
                                     width: 56,
                                     height: 56,
                                     fit: BoxFit.cover,
@@ -382,7 +388,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.statusFailed),
                               tooltip: 'Clear key',
                               onPressed: () async {
-                                await _prefsService.clearLastUsedApiKey();
+                                await _getPrefsService().clearLastUsedApiKey();
                                 setState(() => _lastApiKey = null);
                               },
                             ),

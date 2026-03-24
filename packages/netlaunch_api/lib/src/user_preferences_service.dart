@@ -1,12 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:netlaunch_auth/netlaunch_auth.dart';
 
 class UserPreferencesService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final AuthProvider _auth;
+
+  UserPreferencesService(this._auth);
 
   /// Get the current user's preferences document reference
   DocumentReference? _getUserPrefsRef() {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _auth.currentUser;
     if (user == null) return null;
     return _firestore.collection('userPreferences').doc(user.uid);
   }
