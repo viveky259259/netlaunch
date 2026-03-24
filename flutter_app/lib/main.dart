@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:flutterkit/kit/kit.dart';
-import 'theme/app_theme.dart';
+import 'package:netlaunch_auth/netlaunch_auth.dart';
+import 'package:netlaunch_api/netlaunch_api.dart';
+import 'package:netlaunch_ui/netlaunch_ui.dart';
 import 'screens/landing_screen.dart';
 import 'screens/dashboard_screen.dart';
-import 'services/storage_service.dart';
-import 'services/firestore_service.dart';
-import 'services/functions_service.dart';
-import 'services/auth_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,12 +30,13 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = FirebaseAuthProvider();
     return MultiProvider(
       providers: [
-        Provider<StorageService>(create: (_) => StorageService()),
+        Provider<AuthProvider>(create: (_) => authProvider),
+        Provider<StorageService>(create: (_) => StorageService(authProvider)),
         Provider<FirestoreService>(create: (_) => FirestoreService()),
         Provider<FunctionsService>(create: (_) => FunctionsService()),
-        Provider<AuthService>(create: (_) => AuthService()),
       ],
       child: MaterialApp(
         title: 'NetLaunch',
@@ -56,8 +54,9 @@ class AuthWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    return StreamBuilder<AuthUser?>(
+      stream: auth.authStateChanges,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
