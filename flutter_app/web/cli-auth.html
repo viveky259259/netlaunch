@@ -105,33 +105,29 @@
 
       try {
         const provider = new GoogleAuthProvider();
+        // Force the account chooser. Without this, an already-signed-in user
+        // gets no picker and the popup auto-closes before the SDK reads the
+        // result, throwing auth/popup-closed-by-user and never sending a token.
+        provider.setCustomParameters({ prompt: 'select_account' });
         const result = await signInWithPopup(auth, provider);
         const user = result.user;
         const idToken = await user.getIdToken();
 
-        status.textContent = 'Authenticated! Redirecting to CLI...';
+        status.textContent = 'Authenticated! Returning to CLI...';
         status.className = 'status success';
 
-        // Send token back to CLI's local server
-        const callbackUrl = `http://localhost:${port}/callback`;
-        const res = await fetch(callbackUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            idToken,
-            refreshToken: user.refreshToken,
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName,
-          }),
+        // Hand the token to the CLI's local server via a top-level navigation.
+        // Safari blocks an HTTPS page from fetch()-ing http://localhost as
+        // mixed content, but navigating to http://127.0.0.1 is allowed in every
+        // browser. The CLI's GET /callback renders the success page.
+        const params = new URLSearchParams({
+          idToken,
+          refreshToken: user.refreshToken || '',
+          uid: user.uid || '',
+          email: user.email || '',
+          displayName: user.displayName || '',
         });
-
-        if (res.ok) {
-          status.textContent = 'Login successful! You can close this tab.';
-          btn.innerHTML = '&#10003; Authenticated';
-        } else {
-          throw new Error('Failed to send token to CLI');
-        }
+        window.location.href = `http://127.0.0.1:${port}/callback?${params.toString()}`;
       } catch (err) {
         console.error(err);
         status.textContent = 'Error: ' + (err.message || 'Sign-in failed');
