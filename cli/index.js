@@ -216,6 +216,9 @@ async function login() {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      // Chrome Private Network Access: a public HTTPS origin (the auth page)
+      // posting to localhost requires this on the preflight, or it's blocked.
+      res.setHeader('Access-Control-Allow-Private-Network', 'true');
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204);

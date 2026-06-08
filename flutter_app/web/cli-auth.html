@@ -105,6 +105,10 @@
 
       try {
         const provider = new GoogleAuthProvider();
+        // Force the account chooser. Without this, an already-signed-in user
+        // gets no picker and the popup auto-closes before the SDK reads the
+        // result, throwing auth/popup-closed-by-user and never sending a token.
+        provider.setCustomParameters({ prompt: 'select_account' });
         const result = await signInWithPopup(auth, provider);
         const user = result.user;
         const idToken = await user.getIdToken();
