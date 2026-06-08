@@ -226,6 +226,40 @@ async function login() {
         return;
       }
 
+      // Safari blocks an HTTPS page from fetch()-ing http://localhost as mixed
+      // content. So the auth page navigates here as a top-level GET with the
+      // token in the query string, which every browser allows. The CLI renders
+      // the success page.
+      if (req.method === 'GET' && req.url.startsWith('/callback')) {
+        const q = new URL(req.url, 'http://127.0.0.1').searchParams;
+        const idToken = q.get('idToken');
+        if (!idToken) {
+          res.writeHead(400, { 'Content-Type': 'text/html' });
+          res.end('<h2>Missing token. Run <code>netlaunch login</code> again.</h2>');
+          return;
+        }
+        saveCredentials({
+          idToken,
+          refreshToken: q.get('refreshToken'),
+          uid: q.get('uid'),
+          email: q.get('email'),
+          displayName: q.get('displayName'),
+          expiresAt: Date.now() + 3600 * 1000, // 1 hour
+        });
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<!doctype html><meta charset="utf-8"><title>NetLaunch</title>'
+          + '<div style="font-family:-apple-system,sans-serif;text-align:center;margin-top:80px">'
+          + '<h1>✅ Login successful</h1>'
+          + '<p>You can close this tab and return to the terminal.</p></div>');
+        console.log(`\n${green('✔')} ${bold('Logged in as')} ${cyan(q.get('email'))}`);
+        if (q.get('displayName')) console.log(`  ${dim(q.get('displayName'))}`);
+        console.log(`\n  Credentials saved to ${dim(CREDS_FILE)}`);
+        console.log(`  You can now deploy without --key\n`);
+        server.close();
+        resolve();
+        return;
+      }
+
       if (req.method === 'POST' && req.url === '/callback') {
         let body = '';
         req.on('data', (chunk) => body += chunk);
