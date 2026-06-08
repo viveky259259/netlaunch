@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutterkit/kit/kit.dart';
 import 'package:netlaunch_api/netlaunch_api.dart';
 import 'package:netlaunch_ui/netlaunch_ui.dart';
+import '../utils/url_launcher.dart' as urls;
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -203,6 +204,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isDeletingConfig = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _openFirebaseConsole() async {
+    try {
+      await urls.launchUrl(
+        'https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk',
+      );
+    } catch (e) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$e'), backgroundColor: Colors.red),
         );
@@ -562,11 +577,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               const SizedBox(height: 16),
                               UkAlert(
-                                message: 'To self-host: Go to Firebase Console → Project Settings → Service accounts → Generate new private key. Upload the JSON file below.',
+                                message: 'To self-host: open the Firebase Console, select your project → Service accounts → Generate new private key, then upload the JSON below.',
                                 type: UkAlertType.info,
                                 dismissible: false,
                               ),
                               const SizedBox(height: 16),
+                              SizedBox(
+                                width: double.infinity,
+                                child: UkButton(
+                                  label: 'Select Project & Download Key',
+                                  variant: UkButtonVariant.outline,
+                                  size: UkButtonSize.medium,
+                                  icon: Icons.open_in_new,
+                                  onPressed: _openFirebaseConsole,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
                               SizedBox(
                                 width: double.infinity,
                                 child: UkButton(
@@ -576,6 +602,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   icon: _isSavingConfig ? null : Icons.upload_file,
                                   onPressed: _isSavingConfig ? null : _uploadFirebaseConfig,
                                 ),
+                              ),
+                              const SizedBox(height: 12),
+                              const Text(
+                                'CLI: run  netlaunch config use  to pick a project and save the key into ./.netlaunch/ automatically.',
+                                style: TextStyle(fontSize: 11, color: AppColors.textSecondary, fontFamily: 'monospace'),
                               ),
                             ],
                           ),

@@ -12,6 +12,9 @@ const FIREBASE_API_KEY = 'FIREBASE_API_KEY_PLACEHOLDER';
 const CREDS_DIR = path.join(require('os').homedir(), '.netlaunch');
 const CREDS_FILE = path.join(CREDS_DIR, 'credentials.json');
 const CONFIG_FILE = path.join(CREDS_DIR, 'firebase-config.json');
+// Project-local config lives in ./.netlaunch/ (per-folder, gitignored).
+const LOCAL_DIR = path.join(process.cwd(), '.netlaunch');
+const LOCAL_SA_FILE = path.join(LOCAL_DIR, 'service-account.json');
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -38,7 +41,8 @@ ${bold('COMMANDS')}
   logout             Remove stored credentials
   whoami             Show current logged-in user
   deploy             Deploy a ZIP archive
-  config set         Set Firebase config for self-hosted deploys
+  config use         Select a Firebase project & save its key to ./.netlaunch/
+  config set         Set Firebase config for self-hosted deploys (global)
   config show        Show current Firebase config
   config remove      Remove Firebase config (use NetLaunch hosting)
 
@@ -77,7 +81,7 @@ function parseArgs(args) {
     else if (arg === 'config') {
       opts.command = 'config';
       // Next arg is the subcommand
-      if (i + 1 < args.length && ['set', 'show', 'remove'].includes(args[i + 1])) {
+      if (i + 1 < args.length && ['set', 'use', 'show', 'remove'].includes(args[i + 1])) {
         opts.configSub = args[++i];
       }
     }
@@ -440,29 +444,188 @@ async function configSet(filePath, sync) {
 }
 
 function configShow() {
-  const config = loadLocalConfig();
+  const config = loadProjectConfig();
   if (config) {
-    console.log(`\n${bold('Firebase Config (local)')}`);
+    const label = config.scope === 'project' ? 'project-local .netlaunch/' : 'global';
+    console.log(`\n${bold('Firebase Config')} ${dim('(' + label + ')')}`);
     console.log(`  Project:  ${cyan(config.projectId)}`);
     console.log(`  Account:  ${dim(config.clientEmail)}`);
-    console.log(`  File:     ${dim(CONFIG_FILE)}\n`);
-    console.log(`  ${dim('Deploys go to your Firebase project.')}`);
+    console.log(`  File:     ${dim(config.file)}\n`);
+    console.log(`  ${dim('Deploys from here go to your Firebase project.')}`);
   } else {
-    console.log(`\n${dim('No local Firebase config set.')}`);
+    console.log(`\n${dim('No Firebase config set.')}`);
     console.log(`  ${dim('Deploys go to NetLaunch hosting.')}`);
-    console.log(`  Run: ${bold('netlaunch config set -f ./service-account.json')}\n`);
+    console.log(`  Run: ${bold('netlaunch config use')} ${dim('(select a project)')}\n`);
   }
 }
 
 function configRemove() {
-  const config = loadLocalConfig();
-  clearLocalConfig();
-  if (config) {
-    console.log(`\n${green('✔')} Local config removed (was: ${config.projectId})`);
+  const config = loadProjectConfig();
+  if (config && config.scope === 'project') {
+    try { fs.rmSync(LOCAL_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    console.log(`\n${green('✔')} Removed project-local config (was: ${config.projectId})`);
+    console.log(`  ${dim('Removed ./.netlaunch/. Deploys here use NetLaunch hosting.')}\n`);
+  } else if (config && config.scope === 'global') {
+    clearLocalConfig();
+    console.log(`\n${green('✔')} Global config removed (was: ${config.projectId})`);
     console.log(`  ${dim('Deploys will use NetLaunch hosting.')}`);
     console.log(`  ${dim('Note: server config (if synced) must be removed from the dashboard.')}\n`);
   } else {
-    console.log(`\n${dim('No local config to remove.')}\n`);
+    console.log(`\n${dim('No config to remove.')}\n`);
+  }
+}
+
+// ── Project-local config (.netlaunch/) ───────────────────────────────
+
+// Project-local .netlaunch/service-account.json takes precedence over the
+// global ~/.netlaunch/firebase-config.json.
+function loadProjectConfig() {
+  try {
+    if (fs.existsSync(LOCAL_SA_FILE)) {
+      const sa = JSON.parse(fs.readFileSync(LOCAL_SA_FILE, 'utf-8'));
+      return {
+        projectId: sa.project_id,
+        clientEmail: sa.client_email,
+        privateKey: sa.private_key,
+        scope: 'project',
+        file: path.relative(process.cwd(), LOCAL_SA_FILE),
+      };
+    }
+  } catch { /* ignore */ }
+  const globalConfig = loadLocalConfig();
+  return globalConfig ? { ...globalConfig, scope: 'global', file: CONFIG_FILE } : null;
+}
+
+function ensureGitignored(entry) {
+  const gi = path.join(process.cwd(), '.gitignore');
+  let content = '';
+  try { content = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf-8') : ''; } catch { /* ignore */ }
+  const present = content.split(/\r?\n/).map((l) => l.trim())
+    .some((l) => l === entry || l === entry + '/');
+  if (present) return false;
+  const prefix = content && !content.endsWith('\n') ? '\n' : '';
+  try {
+    fs.appendFileSync(gi, `${prefix}\n# NetLaunch service account — secret, do not commit\n${entry}/\n`);
+    return true;
+  } catch { return false; }
+}
+
+function readServiceAccount(filePath) {
+  const resolved = path.resolve(filePath);
+  if (!fs.existsSync(resolved)) {
+    console.error(red(`Error: File not found: ${resolved}`)); process.exit(1);
+  }
+  let parsed;
+  try { parsed = JSON.parse(fs.readFileSync(resolved, 'utf-8')); }
+  catch { console.error(red('Error: Invalid JSON file.')); process.exit(1); }
+  if (parsed.type !== 'service_account') {
+    console.error(red('Error: Not a service account key (type must be "service_account").')); process.exit(1);
+  }
+  if (!parsed.project_id || !parsed.client_email || !parsed.private_key) {
+    console.error(red('Error: Missing required fields (project_id, client_email, private_key).')); process.exit(1);
+  }
+  return parsed;
+}
+
+function writeProjectServiceAccount(parsed) {
+  fs.mkdirSync(LOCAL_DIR, { recursive: true });
+  fs.writeFileSync(LOCAL_SA_FILE, JSON.stringify(parsed, null, 2), { mode: 0o600 });
+}
+
+function promptLine(question) {
+  return new Promise((resolve) => {
+    const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (a) => { rl.close(); resolve(a.trim()); });
+  });
+}
+
+function hasGcloud() {
+  try { require('child_process').execSync('gcloud --version', { stdio: 'ignore' }); return true; }
+  catch { return false; }
+}
+
+// Interactive: pick a project and mint a key via the gcloud SDK.
+async function obtainViaGcloud() {
+  const { execSync } = require('child_process');
+  let projects;
+  try {
+    projects = JSON.parse(execSync('gcloud projects list --format=json', { encoding: 'utf-8' }));
+  } catch {
+    console.error(red('  gcloud failed. Run: gcloud auth login')); return null;
+  }
+  if (!projects.length) { console.error(red('  No Google Cloud projects found.')); return null; }
+  console.log('\n  Select a project:');
+  projects.forEach((p, i) => console.log(`   ${bold(String(i + 1))}. ${cyan(p.projectId)} ${dim(p.name || '')}`));
+  const idx = parseInt(await promptLine('\n  Number: '), 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= projects.length) {
+    console.error(red('  Invalid selection.')); return null;
+  }
+  const projectId = projects[idx].projectId;
+
+  let saEmail;
+  try {
+    const sas = JSON.parse(execSync(
+      `gcloud iam service-accounts list --project ${projectId} --format=json`, { encoding: 'utf-8' }));
+    const admin = sas.find((s) => s.email.includes('firebase-adminsdk')) || sas[0];
+    if (!admin) throw new Error('none');
+    saEmail = admin.email;
+  } catch {
+    console.error(red('  No service account found for that project.')); return null;
+  }
+
+  const tmp = path.join(require('os').tmpdir(), `nl-sa-${process.pid}.json`);
+  try {
+    execSync(`gcloud iam service-accounts keys create "${tmp}" --iam-account="${saEmail}" --project ${projectId}`,
+      { stdio: 'ignore' });
+  } catch {
+    console.error(red('  Key creation failed (need roles/iam.serviceAccountKeyAdmin).')); return null;
+  }
+  const parsed = JSON.parse(fs.readFileSync(tmp, 'utf-8'));
+  try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+  return parsed;
+}
+
+// netlaunch config use — select a Firebase project, obtain its service-account
+// key, store it in ./.netlaunch/, gitignore it, and sync so deploys target it.
+async function configUse(opts) {
+  console.log(`\n${bold('NetLaunch — connect a Firebase project')}`);
+  console.log(dim('─'.repeat(44)));
+
+  let parsed;
+  if (opts.file) {
+    parsed = readServiceAccount(opts.file);            // bring-your-own
+  } else if (hasGcloud()) {
+    parsed = await obtainViaGcloud();                  // auto via gcloud
+    if (!parsed) process.exit(1);
+  } else {
+    console.log(`\n  No ${bold('gcloud')} SDK and no ${dim('--file')} given.`);
+    console.log(`  Opening the Firebase service-accounts console...`);
+    console.log(`\n  ${bold('1.')} Select your project`);
+    console.log(`  ${bold('2.')} Click ${cyan('Generate new private key')} → download`);
+    console.log(`  ${bold('3.')} Re-run: ${bold('netlaunch config use --file <downloaded>.json')}\n`);
+    openBrowser('https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk');
+    return;
+  }
+
+  writeProjectServiceAccount(parsed);
+  const added = ensureGitignored('.netlaunch');
+
+  console.log(`\n${green('✔')} ${bold('Connected')} ${cyan(parsed.project_id)}`);
+  console.log(`  Saved:    ${dim(path.relative(process.cwd(), LOCAL_SA_FILE))}`);
+  console.log(`  Account:  ${dim(parsed.client_email)}`);
+  if (added) console.log(`  ${green('✔')} Added ${dim('.netlaunch/')} to .gitignore`);
+
+  const idToken = await getValidIdToken();
+  if (idToken) {
+    try {
+      await callFirebaseFunction('saveFirebaseConfigFunction',
+        { serviceAccountJson: JSON.stringify(parsed) }, idToken);
+      console.log(`  ${green('✔')} Synced — deploys from this folder go to ${cyan(parsed.project_id)}.\n`);
+    } catch (err) {
+      console.log(`  ${yellow('!')} Saved locally; server sync failed: ${err.message}\n`);
+    }
+  } else {
+    console.log(`  ${yellow('!')} Not logged in — run ${bold('netlaunch login')}, then re-run to sync.\n`);
   }
 }
 
@@ -508,8 +671,8 @@ async function deploy(apiKey, siteName, filePath, forceHosted) {
   const stat = fs.statSync(filePath);
   const sizeMB = (stat.size / (1024 * 1024)).toFixed(2);
 
-  // Check for local Firebase config (unless --hosted)
-  const localConfig = loadLocalConfig();
+  // Check for project-local (.netlaunch/) or global Firebase config (unless --hosted)
+  const localConfig = loadProjectConfig();
   const selfHosted = localConfig && !forceHosted;
 
   console.log(`\n${bold('NetLaunch Deploy')}`);
@@ -601,10 +764,11 @@ async function main() {
   if (opts.command === 'logout') return logout();
   if (opts.command === 'whoami') return whoami();
   if (opts.command === 'config') {
+    if (opts.configSub === 'use') return configUse(opts);
     if (opts.configSub === 'set') return configSet(opts.file, opts.sync);
     if (opts.configSub === 'show') return configShow();
     if (opts.configSub === 'remove') return configRemove();
-    console.log(`Usage: netlaunch config <set|show|remove>`);
+    console.log(`Usage: netlaunch config <use|set|show|remove>`);
     process.exit(1);
   }
 

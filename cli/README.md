@@ -45,7 +45,8 @@ That's it. Your site is live at `https://my-app.web.app`.
 | `netlaunch logout` | Remove stored credentials |
 | `netlaunch whoami` | Show current logged-in user |
 | `netlaunch deploy` | Deploy a ZIP archive |
-| `netlaunch config set` | Set Firebase config for self-hosted deploys |
+| `netlaunch config use` | Select a Firebase project & save its key to `./.netlaunch/` |
+| `netlaunch config set` | Set Firebase config for self-hosted deploys (global) |
 | `netlaunch config show` | Show current Firebase config |
 | `netlaunch config remove` | Remove Firebase config |
 
