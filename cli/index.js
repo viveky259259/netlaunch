@@ -12,9 +12,16 @@ const FIREBASE_API_KEY = 'FIREBASE_API_KEY_PLACEHOLDER';
 const CREDS_DIR = path.join(require('os').homedir(), '.netlaunch');
 const CREDS_FILE = path.join(CREDS_DIR, 'credentials.json');
 const CONFIG_FILE = path.join(CREDS_DIR, 'firebase-config.json');
-// Project-local config lives in ./.netlaunch/ (per-folder, gitignored).
+// Global key cache, keyed by projectId — a convenience, never the source of truth.
+const KEY_CACHE_DIR = path.join(CREDS_DIR, 'projects');
+// Project-local config lives in ./.netlaunch/ (per-folder).
+//   config.json          → committed binding (project/site/alias) — no secrets
+//   service-account.json → gitignored key
 const LOCAL_DIR = path.join(process.cwd(), '.netlaunch');
 const LOCAL_SA_FILE = path.join(LOCAL_DIR, 'service-account.json');
+const LOCAL_CONFIG_FILE = path.join(LOCAL_DIR, 'config.json');
+const CONFIG_VERSION = 1;
+const SECRET_FIELDS = ['type', 'private_key', 'private_key_id', 'client_email', 'client_id', 'auth_uri', 'token_uri'];
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -41,30 +48,41 @@ ${bold('COMMANDS')}
   logout             Remove stored credentials
   whoami             Show current logged-in user
   deploy             Deploy a ZIP archive
-  config use         Select a Firebase project & save its key to ./.netlaunch/
+  link <project>     Bind this repo to a Firebase project (writes .netlaunch/config.json)
+  config use         Pick a project, mint its key (.netlaunch/) AND write config.json
   config set         Set Firebase config for self-hosted deploys (global)
-  config show        Show current Firebase config
-  config remove      Remove Firebase config (use NetLaunch hosting)
+  config show        Show resolved binding, key source & deploy mode (doctor)
+  config remove      Remove this repo's .netlaunch/ binding & key
 
 ${bold('DEPLOY OPTIONS')}
   --key,  -k     API key (fk_...) — optional if logged in
-  --site, -s     Site name / subdomain (3-30 chars, lowercase)
+  --site, -s     Site name / subdomain — optional if config.json sets it
   --file, -f     Path to ZIP archive
+  --target, -t   Target name from a multi-env config.json
+  --yes,  -y     Skip the production confirmation prompt (required in CI for prod)
   --hosted       Force deploy to NetLaunch (ignore saved config)
 
-${bold('CONFIG OPTIONS')}
-  --file, -f     Path to service account JSON
+${bold('LINK / CONFIG OPTIONS')}
+  --file, -f     Path to service account JSON (config use / set)
+  --site, -s     Hosting site id for the binding (link)
+  --alias        Friendly label shown in the deploy banner (link)
+  --target, -t   Write the binding under a named target (link, multi-env)
+  --prod         Mark the binding production (red banner + confirm)
   --sync         Also save config to server (use from dashboard)
 
 ${bold('EXAMPLES')}
   netlaunch login
-  netlaunch deploy -s my-app -f ./dist.zip
-  netlaunch config set -f ./service-account.json --sync
-  netlaunch config show
+  netlaunch link acme-prod --site acme-www --prod
+  netlaunch config use
+  netlaunch deploy -f ./dist.zip                 ${dim('# project/site from config.json')}
+  netlaunch deploy -t prod -y -f ./dist.zip      ${dim('# CI, multi-env')}
   netlaunch deploy -s my-app -f ./dist.zip --hosted
+  netlaunch config show
 
 ${bold('ENVIRONMENT')}
-  NETLAUNCH_KEY   API key (alternative to --key flag)
+  NETLAUNCH_KEY                 API key (alternative to --key flag)
+  NETLAUNCH_SA_JSON             Service account JSON (raw) for self-hosted CI deploys
+  GOOGLE_APPLICATION_CREDENTIALS  Path to a service account JSON (CI fallback)
 `);
 }
 
@@ -75,9 +93,13 @@ function parseArgs(args) {
     if (arg === '--key' || arg === '-k') opts.key = args[++i];
     else if (arg === '--site' || arg === '-s') opts.site = args[++i];
     else if (arg === '--file' || arg === '-f') opts.file = args[++i];
+    else if (arg === '--target' || arg === '-t') opts.target = args[++i];
+    else if (arg === '--alias') opts.alias = args[++i];
     else if (arg === '--help' || arg === '-h') opts.help = true;
     else if (arg === '--sync') opts.sync = true;
     else if (arg === '--hosted') opts.hosted = true;
+    else if (arg === '--prod' || arg === '--production') opts.production = true;
+    else if (arg === '--yes' || arg === '-y') opts.yes = true;
     else if (arg === 'config') {
       opts.command = 'config';
       // Next arg is the subcommand
@@ -85,7 +107,9 @@ function parseArgs(args) {
         opts.configSub = args[++i];
       }
     }
-    else if (['deploy', 'login', 'logout', 'whoami'].includes(arg)) opts.command = arg;
+    else if (['deploy', 'login', 'logout', 'whoami', 'link'].includes(arg)) opts.command = arg;
+    // First bare (non-flag) token after `link` is the project id.
+    else if (opts.command === 'link' && !opts.project && !arg.startsWith('-')) opts.project = arg;
   }
   return opts;
 }
@@ -299,8 +323,11 @@ async function login() {
         return;
       }
 
-      res.writeHead(404);
-      res.end('Not found');
+      res.writeHead(404, { 'Content-Type': 'text/html' });
+      res.end('<!doctype html><meta charset="utf-8"><title>NetLaunch</title>'
+        + '<div style="font-family:-apple-system,sans-serif;text-align:center;margin-top:80px">'
+        + '<h2>NetLaunch</h2><p>Return to your terminal — the CLI may have already captured your '
+        + 'login, or it timed out. If needed, re-run <code>netlaunch login</code>.</p></div>');
     });
 
     server.listen(0, '127.0.0.1', () => {
@@ -313,12 +340,12 @@ async function login() {
 
       openBrowser(authUrl);
 
-      // Timeout after 5 minutes
+      // Timeout after 10 minutes (Google sign-in + MFA can take a while)
       setTimeout(() => {
-        console.error(`\n${red('✘')} Login timed out. Please try again.\n`);
+        console.error(`\n${red('✘')} Login timed out after 10 minutes. Please run: netlaunch login\n`);
         server.close();
         process.exit(1);
-      }, 300000);
+      }, 600000);
     });
 
     server.on('error', (err) => {
@@ -443,69 +470,275 @@ async function configSet(filePath, sync) {
   console.log(`  Use ${dim('--hosted')} flag to override.\n`);
 }
 
+// `config show` doubles as a doctor: it prints exactly how a deploy here resolves.
 function configShow() {
-  const config = loadProjectConfig();
-  if (config) {
-    const label = config.scope === 'project' ? 'project-local .netlaunch/' : 'global';
-    console.log(`\n${bold('Firebase Config')} ${dim('(' + label + ')')}`);
-    console.log(`  Project:  ${cyan(config.projectId)}`);
-    console.log(`  Account:  ${dim(config.clientEmail)}`);
-    console.log(`  File:     ${dim(config.file)}\n`);
-    console.log(`  ${dim('Deploys from here go to your Firebase project.')}`);
-  } else {
-    console.log(`\n${dim('No Firebase config set.')}`);
-    console.log(`  ${dim('Deploys go to NetLaunch hosting.')}`);
-    console.log(`  Run: ${bold('netlaunch config use')} ${dim('(select a project)')}\n`);
+  const dir = process.cwd();
+  const disc = discoverRepoConfig(dir);
+  console.log(`\n${bold('NetLaunch — resolved config')}`);
+  console.log(dim('─'.repeat(40)));
+  if (disc) {
+    const t = resolveTarget(disc.config, undefined);
+    console.log(`  Binding:  ${dim(path.relative(dir, disc.configPath))}`);
+    console.log(`  Project:  ${cyan(t.project)}${t.production ? red(' (production)') : (t.alias ? dim(` (${t.alias})`) : '')}`);
+    console.log(`  Site:     ${cyan(t.site)}`);
+    let keySrc;
+    if (process.env.NETLAUNCH_SA_JSON || process.env.GOOGLE_APPLICATION_CREDENTIALS) keySrc = 'env (CI)';
+    else if (fs.existsSync(path.join(disc.dir, '.netlaunch', 'service-account.json'))) keySrc = 'repo-local';
+    else if (readKeyCache(t.project)) keySrc = 'global cache';
+    else keySrc = 'missing';
+    console.log(`  Key:      ${keySrc === 'missing' ? yellow(keySrc) : green(keySrc)}`);
+    if (keySrc === 'missing') console.log(`            ${dim('run: netlaunch config use')}`);
+    console.log(`  Mode:     ${cyan('Self-Hosted')}\n`);
+    return;
   }
+  const globalCfg = loadLocalConfig();
+  if (globalCfg) {
+    console.log(`  Binding:  ${dim('global ~/.netlaunch/firebase-config.json')}`);
+    console.log(`  Project:  ${cyan(globalCfg.projectId)}`);
+    console.log(`  Mode:     ${cyan('Self-Hosted (global)')}\n`);
+    return;
+  }
+  console.log(`  ${dim('No binding found. Deploys go to NetLaunch hosting.')}`);
+  console.log(`  Run: ${bold('netlaunch link <project>')} ${dim('or')} ${bold('netlaunch config use')}\n`);
 }
 
 function configRemove() {
-  const config = loadProjectConfig();
-  if (config && config.scope === 'project') {
-    try { fs.rmSync(LOCAL_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
-    console.log(`\n${green('✔')} Removed project-local config (was: ${config.projectId})`);
-    console.log(`  ${dim('Removed ./.netlaunch/. Deploys here use NetLaunch hosting.')}\n`);
-  } else if (config && config.scope === 'global') {
+  const hadRepo = fs.existsSync(LOCAL_SA_FILE) || fs.existsSync(LOCAL_CONFIG_FILE);
+  if (hadRepo) {
+    try { if (fs.existsSync(LOCAL_SA_FILE)) fs.unlinkSync(LOCAL_SA_FILE); } catch { /* ignore */ }
+    try { if (fs.existsSync(LOCAL_CONFIG_FILE)) fs.unlinkSync(LOCAL_CONFIG_FILE); } catch { /* ignore */ }
+    try { fs.rmdirSync(LOCAL_DIR); } catch { /* not empty — leave it */ }
+    console.log(`\n${green('✔')} Removed this repo's ${dim('.netlaunch/')} binding & key.`);
+    console.log(`  ${dim('Global key cache (~/.netlaunch/projects/) left intact.')}`);
+    console.log(`  ${dim('Deploys here now use NetLaunch hosting.')}\n`);
+    return;
+  }
+  const globalCfg = loadLocalConfig();
+  if (globalCfg) {
     clearLocalConfig();
-    console.log(`\n${green('✔')} Global config removed (was: ${config.projectId})`);
+    console.log(`\n${green('✔')} Global config removed (was: ${globalCfg.projectId})`);
     console.log(`  ${dim('Deploys will use NetLaunch hosting.')}`);
     console.log(`  ${dim('Note: server config (if synced) must be removed from the dashboard.')}\n`);
-  } else {
-    console.log(`\n${dim('No config to remove.')}\n`);
+    return;
+  }
+  console.log(`\n${dim('No config to remove.')}\n`);
+}
+
+// ── Repo binding: discovery, schema, key cache (.netlaunch/) ─────────
+
+const isTTY = () => Boolean(process.stdin.isTTY && process.stdout.isTTY);
+
+// Nearest ancestor containing .git (inclusive). null before crossing $HOME / root.
+function findGitRoot(startDir) {
+  const home = require('os').homedir();
+  let dir = startDir;
+  for (;;) {
+    if (fs.existsSync(path.join(dir, '.git'))) return dir;
+    if (dir === home) return null;          // never cross $HOME
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;        // filesystem root
+    dir = parent;
   }
 }
 
-// ── Project-local config (.netlaunch/) ───────────────────────────────
-
-// Project-local .netlaunch/service-account.json takes precedence over the
-// global ~/.netlaunch/firebase-config.json.
-function loadProjectConfig() {
-  try {
-    if (fs.existsSync(LOCAL_SA_FILE)) {
-      const sa = JSON.parse(fs.readFileSync(LOCAL_SA_FILE, 'utf-8'));
-      return {
-        projectId: sa.project_id,
-        clientEmail: sa.client_email,
-        privateKey: sa.private_key,
-        scope: 'project',
-        file: path.relative(process.cwd(), LOCAL_SA_FILE),
-      };
-    }
-  } catch { /* ignore */ }
-  const globalConfig = loadLocalConfig();
-  return globalConfig ? { ...globalConfig, scope: 'global', file: CONFIG_FILE } : null;
+// Find .netlaunch/config.json, bounded to the git repo root (§3.1).
+// Returns { dir, configPath, config } or null.
+function discoverRepoConfig(cwd = process.cwd()) {
+  const at = (dir) => {
+    const p = path.join(dir, '.netlaunch', 'config.json');
+    return fs.existsSync(p) ? { dir, configPath: p } : null;
+  };
+  const gitRoot = findGitRoot(cwd);
+  if (!gitRoot) {
+    const hit = at(cwd);                    // outside a repo: cwd only, no walk-up
+    return hit ? { ...hit, config: readRepoConfig(hit.configPath) } : null;
+  }
+  let dir = cwd;
+  for (;;) {
+    const hit = at(dir);
+    if (hit) return { ...hit, config: readRepoConfig(hit.configPath) };
+    if (dir === gitRoot) break;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
 }
 
-function ensureGitignored(entry) {
-  const gi = path.join(process.cwd(), '.gitignore');
+function readRepoConfig(configPath) {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(configPath, 'utf-8')); }
+  catch { console.error(red(`Error: invalid .netlaunch/config.json (${configPath})`)); process.exit(1); }
+  const v = raw.version || 1;
+  if (v > CONFIG_VERSION) {
+    console.error(red(`Error: config.json version ${v} not supported; upgrade netlaunch.`));
+    process.exit(1);
+  }
+  return raw;
+}
+
+// Resolve a target → {project, site, alias, production} (§2.1).
+// `targets` (if present) wins over top-level fields.
+function resolveTarget(config, targetFlag) {
+  if (config.targets && typeof config.targets === 'object') {
+    const name = targetFlag || config.defaultTarget;
+    const avail = Object.keys(config.targets).join(', ');
+    if (!name) {
+      console.error(red('Error: config.json has multiple targets — pass --target <name>.'));
+      console.error(dim(`  Available: ${avail}`)); process.exit(1);
+    }
+    const t = config.targets[name];
+    if (!t) {
+      console.error(red(`Error: target "${name}" not found in config.json.`));
+      console.error(dim(`  Available: ${avail}`)); process.exit(1);
+    }
+    return { name, project: t.project, site: t.site || t.project, alias: t.alias || name, production: !!t.production };
+  }
+  if (!config.project) { console.error(red('Error: config.json has no "project".')); process.exit(1); }
+  return { name: null, project: config.project, site: config.site || config.project, alias: config.alias, production: !!config.production };
+}
+
+function stripSecretFields(obj) {
+  const clean = { ...obj };
+  for (const f of SECRET_FIELDS) delete clean[f];
+  return clean;
+}
+
+// Write/merge .netlaunch/config.json (committed binding). Never writes secrets.
+function writeRepoConfig(dir, { project, site, alias, production, target }) {
+  const ndir = path.join(dir, '.netlaunch');
+  const cpath = path.join(ndir, 'config.json');
+  fs.mkdirSync(ndir, { recursive: true });
+  let existing = {};
+  if (fs.existsSync(cpath)) { try { existing = JSON.parse(fs.readFileSync(cpath, 'utf-8')); } catch { /* ignore */ } }
+  const entry = stripSecretFields({ project, ...(site ? { site } : {}), ...(alias ? { alias } : {}), ...(production ? { production: true } : {}) });
+  let out;
+  if (target) {
+    out = { version: CONFIG_VERSION, ...existing };
+    out.targets = { ...(existing.targets || {}), [target]: entry };
+    if (!out.defaultTarget) out.defaultTarget = target;
+    delete out.project; delete out.site; delete out.alias; delete out.production;
+  } else {
+    out = { version: CONFIG_VERSION, ...entry };
+  }
+  fs.writeFileSync(cpath, JSON.stringify(out, null, 2) + '\n');
+  return cpath;
+}
+
+// Global key cache (~/.netlaunch/projects/<projectId>.json) — convenience only.
+function keyCachePath(projectId) { return path.join(KEY_CACHE_DIR, `${projectId}.json`); }
+function readKeyCache(projectId) {
+  try { const p = keyCachePath(projectId); if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf-8')); }
+  catch { /* ignore */ }
+  return null;
+}
+function writeKeyCache(parsed) {
+  try {
+    fs.mkdirSync(KEY_CACHE_DIR, { recursive: true });
+    fs.writeFileSync(keyCachePath(parsed.project_id), JSON.stringify(parsed, null, 2), { mode: 0o600 });
+  } catch { /* ignore */ }
+}
+
+// Find a service-account key for projectId (§3.2). Returns { parsed, source } or null.
+async function findKeyForProject(projectId, repoDir) {
+  if (process.env.NETLAUNCH_SA_JSON) {
+    try { return { parsed: JSON.parse(process.env.NETLAUNCH_SA_JSON), source: 'env' }; } catch { /* ignore */ }
+  }
+  const gac = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (gac && fs.existsSync(gac)) {
+    try { return { parsed: JSON.parse(fs.readFileSync(gac, 'utf-8')), source: 'env' }; } catch { /* ignore */ }
+  }
+  const localPath = path.join(repoDir, '.netlaunch', 'service-account.json');
+  if (fs.existsSync(localPath)) {
+    try { return { parsed: JSON.parse(fs.readFileSync(localPath, 'utf-8')), source: 'repo-local' }; } catch { /* ignore */ }
+  }
+  const cached = readKeyCache(projectId);
+  if (cached) {
+    if (isTTY()) {
+      const ans = (await promptLine(`  Reuse saved credentials for ${cyan(projectId)}? [Y/n] `)).toLowerCase();
+      if (ans === '' || ans === 'y' || ans === 'yes') {
+        writeProjectServiceAccount(cached, repoDir);
+        return { parsed: cached, source: 'cache' };
+      }
+    } else {
+      return { parsed: cached, source: 'cache' };   // non-interactive: reuse silently
+    }
+  }
+  return null;
+}
+
+// Ensure the secret key is gitignored and config.json stays committable (§7).
+// NEGATION only — never removes a user's existing ignore pattern.
+function ensureNetlaunchGitignore(dir) {
+  const gi = path.join(dir, '.gitignore');
   let content = '';
   try { content = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf-8') : ''; } catch { /* ignore */ }
-  const present = content.split(/\r?\n/).map((l) => l.trim())
-    .some((l) => l === entry || l === entry + '/');
-  if (present) return false;
-  const prefix = content && !content.endsWith('\n') ? '\n' : '';
+  const lines = content.split(/\r?\n/).map((l) => l.trim());
+  const has = (s) => lines.includes(s);
+  const blanket = has('.netlaunch') || has('.netlaunch/');
+  const additions = [];
+  if (blanket) {
+    // git can't re-include a file whose parent dir is excluded by a blanket.
+    // So: re-include the dir, ignore its contents, then re-include only
+    // config.json. Any OTHER files in .netlaunch/ stay ignored via `.netlaunch/*`.
+    let pushedComment = false;
+    for (const line of ['!.netlaunch/', '.netlaunch/*', '!.netlaunch/config.json']) {
+      if (!has(line)) {
+        if (!pushedComment) { additions.push('# NetLaunch: keep config.json committable, key ignored'); pushedComment = true; }
+        additions.push(line);
+      }
+    }
+  } else if (!has('.netlaunch/service-account.json')) {
+    additions.push('# NetLaunch service account — secret, do not commit');
+    additions.push('.netlaunch/service-account.json');
+  }
+  if (additions.length) {
+    const prefix = content && !content.endsWith('\n') ? '\n' : '';
+    try { fs.appendFileSync(gi, `${prefix}\n${additions.join('\n')}\n`); } catch { /* ignore */ }
+  }
+  warnIfConfigIgnored(dir);
+}
+
+// Post-check: warn (don't auto-fix) if config.json would still be git-ignored.
+function warnIfConfigIgnored(dir) {
   try {
-    fs.appendFileSync(gi, `${prefix}\n# NetLaunch service account — secret, do not commit\n${entry}/\n`);
+    const { execSync } = require('child_process');
+    const out = execSync('git check-ignore -v .netlaunch/config.json',
+      { cwd: dir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (out) {
+      console.log(`  ${yellow('!')} .netlaunch/config.json is still gitignored by: ${dim(out)}`);
+      console.log(`    ${dim('Add  !.netlaunch/config.json  so teammates/CI see the target.')}`);
+    }
+  } catch { /* not ignored, or not a git repo — fine */ }
+}
+
+// Banner + confirmation matrix (§4). Aborts on a failed/forbidden prod confirm.
+async function confirmDeploy(target, opts) {
+  console.log(`\n${bold('Deploying to Firebase')}`);
+  const tag = target.production ? red(' (production)') : (target.alias ? dim(` (${target.alias})`) : '');
+  console.log(`  Project:  ${target.production ? red(target.project) : cyan(target.project)}${tag}`);
+  console.log(`  Site:     ${cyan(target.site)}`);
+  if (!target.production || opts.yes) return;
+  if (!isTTY()) {
+    console.error(`\n${red('✘')} Refusing to deploy to production ${bold(target.project)} without confirmation.`);
+    console.error(dim('  Pass --yes in non-interactive environments.\n'));
+    process.exit(1);
+  }
+  const ans = await promptLine(`  ${yellow('Production deploy.')} Type the project id (${cyan(target.project)}) to continue: `);
+  if (ans !== target.project) { console.error(`\n${red('✘')} Confirmation did not match. Aborted.\n`); process.exit(1); }
+}
+
+// Legacy migration (§7): back-fill config.json from an existing service-account.json.
+function migrateLegacyRepo(dir) {
+  const sa = path.join(dir, '.netlaunch', 'service-account.json');
+  const cfg = path.join(dir, '.netlaunch', 'config.json');
+  if (!fs.existsSync(sa) || fs.existsSync(cfg)) return false;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(sa, 'utf-8'));
+    if (!parsed.project_id) return false;
+    writeRepoConfig(dir, { project: parsed.project_id });
+    ensureNetlaunchGitignore(dir);
+    console.log(`  ${green('✔')} Created ${dim('.netlaunch/config.json')} → ${cyan(parsed.project_id)} ${dim('(commit it)')}`);
     return true;
   } catch { return false; }
 }
@@ -527,9 +760,10 @@ function readServiceAccount(filePath) {
   return parsed;
 }
 
-function writeProjectServiceAccount(parsed) {
-  fs.mkdirSync(LOCAL_DIR, { recursive: true });
-  fs.writeFileSync(LOCAL_SA_FILE, JSON.stringify(parsed, null, 2), { mode: 0o600 });
+function writeProjectServiceAccount(parsed, dir = process.cwd()) {
+  const ndir = path.join(dir, '.netlaunch');
+  fs.mkdirSync(ndir, { recursive: true });
+  fs.writeFileSync(path.join(ndir, 'service-account.json'), JSON.stringify(parsed, null, 2), { mode: 0o600 });
 }
 
 function promptLine(question) {
@@ -607,26 +841,51 @@ async function configUse(opts) {
     return;
   }
 
-  writeProjectServiceAccount(parsed);
-  const added = ensureGitignored('.netlaunch');
+  const dir = process.cwd();
+  writeProjectServiceAccount(parsed, dir);          // gitignored secret
+  writeKeyCache(parsed);                            // global cache for reuse across repos
+  const cpath = writeRepoConfig(dir, {              // committed binding
+    project: parsed.project_id, site: opts.site, alias: opts.alias,
+    production: opts.production, target: opts.target,
+  });
+  ensureNetlaunchGitignore(dir);
 
   console.log(`\n${green('✔')} ${bold('Connected')} ${cyan(parsed.project_id)}`);
-  console.log(`  Saved:    ${dim(path.relative(process.cwd(), LOCAL_SA_FILE))}`);
+  console.log(`  Key:      ${dim(path.relative(dir, LOCAL_SA_FILE))} ${dim('(gitignored)')}`);
+  console.log(`  Binding:  ${dim(path.relative(dir, cpath))} ${green('(commit this)')}`);
   console.log(`  Account:  ${dim(parsed.client_email)}`);
-  if (added) console.log(`  ${green('✔')} Added ${dim('.netlaunch/')} to .gitignore`);
 
   const idToken = await getValidIdToken();
   if (idToken) {
     try {
       await callFirebaseFunction('saveFirebaseConfigFunction',
         { serviceAccountJson: JSON.stringify(parsed) }, idToken);
-      console.log(`  ${green('✔')} Synced — deploys from this folder go to ${cyan(parsed.project_id)}.\n`);
+      console.log(`  ${green('✔')} Synced — deploys from this repo go to ${cyan(parsed.project_id)}.`);
     } catch (err) {
-      console.log(`  ${yellow('!')} Saved locally; server sync failed: ${err.message}\n`);
+      console.log(`  ${yellow('!')} Saved locally; server sync failed: ${err.message}`);
     }
   } else {
-    console.log(`  ${yellow('!')} Not logged in — run ${bold('netlaunch login')}, then re-run to sync.\n`);
+    console.log(`  ${yellow('!')} Not logged in — run ${bold('netlaunch login')}, then re-run to sync.`);
   }
+  console.log(`\n  ${dim('Commit .netlaunch/config.json so teammates & CI know the target.')}\n`);
+}
+
+// netlaunch link <project> — declare the repo→project binding WITHOUT minting a key.
+// For repo authors and teammates; `config use` = link + mint.
+function linkCommand(opts) {
+  const project = opts.project;
+  if (!project) {
+    console.error(red('Usage: netlaunch link <projectId> [--site s] [--alias a] [--prod] [--target name]'));
+    process.exit(1);
+  }
+  const dir = process.cwd();
+  const cpath = writeRepoConfig(dir, {
+    project, site: opts.site, alias: opts.alias, production: opts.production, target: opts.target,
+  });
+  ensureNetlaunchGitignore(dir);
+  console.log(`\n${green('✔')} ${bold('Linked')} this repo to ${cyan(project)}${opts.production ? red(' (production)') : ''}`);
+  console.log(`  Binding:  ${dim(path.relative(dir, cpath))} ${green('(commit this)')}`);
+  console.log(`  ${dim('No key written. Run `netlaunch config use` (or set NETLAUNCH_SA_JSON in CI) to deploy.')}\n`);
 }
 
 // ── Multipart builder ────────────────────────────────────────────────
@@ -662,7 +921,7 @@ function buildMultipart(fields, filePath) {
 
 // ── Deploy ───────────────────────────────────────────────────────────
 
-async function deploy(apiKey, siteName, filePath, forceHosted) {
+async function deploy(apiKey, siteName, filePath, info = {}) {
   if (!fs.existsSync(filePath)) {
     console.error(red(`Error: File not found: ${filePath}`));
     process.exit(1);
@@ -671,16 +930,12 @@ async function deploy(apiKey, siteName, filePath, forceHosted) {
   const stat = fs.statSync(filePath);
   const sizeMB = (stat.size / (1024 * 1024)).toFixed(2);
 
-  // Check for project-local (.netlaunch/) or global Firebase config (unless --hosted)
-  const localConfig = loadProjectConfig();
-  const selfHosted = localConfig && !forceHosted;
-
   console.log(`\n${bold('NetLaunch Deploy')}`);
   console.log(dim('─'.repeat(40)));
   console.log(`  Site:  ${cyan(siteName + '.web.app')}`);
   console.log(`  File:  ${path.basename(filePath)} ${dim(`(${sizeMB} MB)`)}`);
-  if (selfHosted) {
-    console.log(`  Mode:  ${cyan('Self-Hosted')} ${dim(`(${localConfig.projectId})`)}`);
+  if (info.selfHosted) {
+    console.log(`  Mode:  ${cyan('Self-Hosted')} ${dim(`(${info.projectId})`)}`);
   }
   console.log(dim('─'.repeat(40)));
   console.log(`\nUploading and deploying...`);
@@ -763,6 +1018,7 @@ async function main() {
   if (opts.command === 'login') return login();
   if (opts.command === 'logout') return logout();
   if (opts.command === 'whoami') return whoami();
+  if (opts.command === 'link') return linkCommand(opts);
   if (opts.command === 'config') {
     if (opts.configSub === 'use') return configUse(opts);
     if (opts.configSub === 'set') return configSet(opts.file, opts.sync);
@@ -774,17 +1030,60 @@ async function main() {
 
   // ── Deploy
   if (opts.command === 'deploy') {
-    let apiKey = opts.key || process.env.NETLAUNCH_KEY;
+    const filePath = opts.file;
+    if (!filePath) { console.error(red('Error: Missing --file path.')); process.exit(1); }
+    const resolvedPath = path.resolve(filePath);
+    if (!fs.existsSync(resolvedPath)) { console.error(red(`Error: File not found: ${resolvedPath}`)); process.exit(1); }
 
-    // If no explicit key, try to auto-generate one from stored credentials
+    // Resolve the repo→project binding (unless --hosted forces NetLaunch hosting).
+    const dir = process.cwd();
+    migrateLegacyRepo(dir);
+    const disc = opts.hosted ? null : discoverRepoConfig(dir);
+
+    let selfHosted = null;   // { target, parsed }
+    if (disc) {
+      const target = resolveTarget(disc.config, opts.target);
+      let keyRes = await findKeyForProject(target.project, disc.dir);
+
+      if (!keyRes) {
+        // Clone-and-go: binding is known, credentials are not — acquire them now.
+        console.log(`\n  This repo is bound to ${cyan(target.project)} ${dim('(.netlaunch/config.json)')}`);
+        console.log(`  No local credentials for ${cyan(target.project)}.`);
+        let parsed = hasGcloud() ? await obtainViaGcloud() : null;
+        if (!parsed) {
+          if (!isTTY()) { console.error(red('  No credentials and non-interactive. Set NETLAUNCH_SA_JSON.')); process.exit(1); }
+          const p = await promptLine('  Path to service-account JSON (blank to abort): ');
+          if (!p) { console.error(red('  Aborted — no credentials.')); process.exit(1); }
+          parsed = readServiceAccount(p);
+        }
+        if (parsed.project_id !== target.project) {
+          console.error(red(`\n${red('✘')} Key project (${parsed.project_id}) ≠ config project (${target.project}). Aborted.`));
+          process.exit(1);
+        }
+        writeProjectServiceAccount(parsed, disc.dir);
+        writeKeyCache(parsed);
+        keyRes = { parsed, source: 'acquired' };
+      }
+
+      // Mismatch guard for any non-env credential (§4).
+      if (keyRes.source !== 'env' && keyRes.parsed.project_id !== target.project) {
+        console.error(`\n${red('✘')} Credential project (${keyRes.parsed.project_id}) ≠ config project (${target.project}). Aborted.\n`);
+        process.exit(1);
+      }
+      selfHosted = { target, parsed: keyRes.parsed };
+    }
+
+    // API key for the cliDeploy function (needed in all modes).
+    let apiKey = opts.key || process.env.NETLAUNCH_KEY;
+    let idToken = null;
     if (!apiKey) {
-      const idToken = await getValidIdToken();
+      idToken = await getValidIdToken();
       if (idToken) {
         console.log(dim('  Generating API key from your login session...'));
         try {
           const result = await callFirebaseFunction('generateApiKeyFunctionCallable', {}, idToken);
           apiKey = result.apiKey;
-          console.log(`  ${green('✔')} API key generated\n`);
+          console.log(`  ${green('✔')} API key generated`);
         } catch (err) {
           console.error(red(`  Failed to generate API key: ${err.message}`));
           console.error(dim('  Try: netlaunch login  or  --key <api-key>\n'));
@@ -796,20 +1095,26 @@ async function main() {
       }
     }
 
-    const siteName = opts.site;
-    const filePath = opts.file;
+    // Site: from --site, else the binding's site.
+    const siteName = opts.site || (selfHosted ? selfHosted.target.site : null);
+    if (!siteName) { console.error(red('Error: Missing --site name (no config.json to infer it).')); process.exit(1); }
 
-    if (!siteName) {
-      console.error(red('Error: Missing --site name.'));
-      process.exit(1);
-    }
-    if (!filePath) {
-      console.error(red('Error: Missing --file path.'));
-      process.exit(1);
+    // Self-hosted: sync the key to the server so cliDeploy targets it, then banner + confirm.
+    if (selfHosted) {
+      await confirmDeploy(selfHosted.target, opts);   // confirm BEFORE any server mutation
+      if (!idToken) idToken = await getValidIdToken();
+      if (idToken) {
+        try {
+          await callFirebaseFunction('saveFirebaseConfigFunction',
+            { serviceAccountJson: JSON.stringify(selfHosted.parsed) }, idToken);
+        } catch { /* best effort — server may already have it */ }
+      }
     }
 
-    const resolvedPath = path.resolve(filePath);
-    await deploy(apiKey, siteName, resolvedPath, opts.hosted);
+    await deploy(apiKey, siteName, resolvedPath, {
+      selfHosted: !!selfHosted,
+      projectId: selfHosted ? selfHosted.target.project : null,
+    });
   }
 }
 
