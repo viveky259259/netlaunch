@@ -45,50 +45,84 @@ That's it. Your site is live at `https://my-app.web.app`.
 | `netlaunch logout` | Remove stored credentials |
 | `netlaunch whoami` | Show current logged-in user |
 | `netlaunch deploy` | Deploy a ZIP archive |
-| `netlaunch config use` | Select a Firebase project & save its key to `./.netlaunch/` |
+| `netlaunch link <project>` | Bind this repo to a Firebase project (writes `.netlaunch/config.json`) |
+| `netlaunch config use` | Pick a project, mint its key (`./.netlaunch/`) **and** write `config.json` |
 | `netlaunch config set` | Set Firebase config for self-hosted deploys (global) |
-| `netlaunch config show` | Show current Firebase config |
-| `netlaunch config remove` | Remove Firebase config |
+| `netlaunch config show` | Show the resolved binding, key source & deploy mode (doctor) |
+| `netlaunch config remove` | Remove this repo's `.netlaunch/` binding & key |
 
 ## Deploy Options
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--site` | `-s` | Site name / subdomain (3-30 chars, lowercase) |
+| `--site` | `-s` | Site name / subdomain — optional if `config.json` sets it |
 | `--file` | `-f` | Path to ZIP archive |
 | `--key` | `-k` | API key — optional if logged in |
+| `--target` | `-t` | Target name from a multi-env `config.json` |
+| `--yes` | `-y` | Skip the production confirmation (required in CI for prod) |
 | `--hosted` | | Force deploy to NetLaunch (ignore saved config) |
 
-## Self-Hosted Deployments
+## Self-Hosted Deployments (per-repo)
 
-Deploy to **your own Firebase project** instead of NetLaunch's.
+Deploy to **your own Firebase project** instead of NetLaunch's. Each repo is bound to its
+own project via a committed `.netlaunch/config.json`, so the binding travels with the repo
+(teammates, CI, a new laptop) while the secret key stays local and gitignored.
 
-### Setup
+```text
+.netlaunch/
+  config.json           # COMMITTED — { project, site, ... }. The binding. No secrets.
+  service-account.json  # GITIGNORED — the key. Per-developer, per-machine.
+```
 
-1. Go to [Firebase Console](https://console.firebase.google.com) → your project
-2. **Project Settings** → **Service accounts** → **Generate new private key**
-3. Save the JSON file
-
-### CLI
+### Connect a repo
 
 ```bash
-# Save config locally
-netlaunch config set --file ./service-account.json
+# Pick a project, mint a key, AND write the committed config.json (needs gcloud, or use --file)
+netlaunch config use
 
-# Save and sync to server (use from dashboard too)
-netlaunch config set --file ./service-account.json --sync
+# Or just DECLARE the binding (no key, no gcloud) — for authors & teammates:
+netlaunch link my-project --site my-site
+netlaunch link my-project --prod          # mark production (red banner + confirm)
 
-# All deploys now go to YOUR Firebase project
-netlaunch deploy -s my-app -f ./dist.zip
+# Bring your own key:
+netlaunch config use --file ./service-account.json
+```
 
-# Override: deploy to NetLaunch hosting instead
+Commit `.netlaunch/config.json`. The CLI adds `service-account.json` to `.gitignore` for you.
+
+### Deploy
+
+```bash
+# project & site come from config.json — no flags needed
+netlaunch deploy -f ./dist.zip
+
+# multi-environment config:
+netlaunch deploy --target prod -f ./dist.zip
+
+# override: deploy to NetLaunch hosting instead
 netlaunch deploy -s my-app -f ./dist.zip --hosted
 
-# View current config
-netlaunch config show
+netlaunch config show      # doctor: shows project, site, key source & mode
+netlaunch config remove    # drop this repo's binding & key
+```
 
-# Remove config (back to NetLaunch hosting)
-netlaunch config remove
+### Clone-and-go
+
+A teammate clones a repo that has a committed `config.json` but no key. `netlaunch deploy`
+reads the project from `config.json`, and — if no key is found locally, in `~/.netlaunch`'s
+cache, or in the environment — prompts them to authenticate once for that project.
+
+### Multi-environment `config.json`
+
+```jsonc
+{
+  "version": 1,
+  "defaultTarget": "staging",
+  "targets": {
+    "staging": { "project": "acme-staging", "site": "acme-staging" },
+    "prod":    { "project": "acme-prod", "site": "acme-www", "production": true }
+  }
+}
 ```
 
 ### Dashboard
@@ -118,7 +152,7 @@ netlaunch deploy -s my-app -f ./dist.zip
 
 ## CI/CD
 
-Set `NETLAUNCH_KEY` environment variable in your CI pipeline:
+**NetLaunch hosting** — set `NETLAUNCH_KEY`:
 
 ```yaml
 # GitHub Actions
@@ -127,6 +161,28 @@ Set `NETLAUNCH_KEY` environment variable in your CI pipeline:
     NETLAUNCH_KEY: ${{ secrets.NETLAUNCH_KEY }}
   run: npx netlaunch deploy -s my-app -f ./dist.zip
 ```
+
+**Self-hosted** — commit `.netlaunch/config.json`, provide the key via `NETLAUNCH_SA_JSON`
+(or `GOOGLE_APPLICATION_CREDENTIALS`), and pass `--yes` to clear the production gate:
+
+```yaml
+- name: Deploy to our Firebase project
+  env:
+    NETLAUNCH_KEY: ${{ secrets.NETLAUNCH_KEY }}
+    NETLAUNCH_SA_JSON: ${{ secrets.FIREBASE_SA_JSON }}
+  run: npx netlaunch deploy --target prod --yes -f ./dist.zip
+```
+
+> **Note — one-time sync required.** Self-hosted deploys are server-mediated: the backend uses
+> the service-account config **stored for your account**, not the key passed on each run. Sync it
+> **once** with `netlaunch config use` (or via the dashboard). After that, a CI run authenticated
+> with `NETLAUNCH_KEY` deploys to your synced project; `NETLAUNCH_SA_JSON` is still read locally to
+> resolve and validate the binding (the project mismatch guard), not to re-sync.
+>
+> On each run: if a login session is present the CLI **re-syncs** the key (and aborts if that
+> sync fails, rather than deploy to a stale target); with no session (typical CI) it **cannot**
+> re-sync, so it proceeds on the previously-synced config and prints a warning. `NETLAUNCH_SA_JSON`
+> is still used locally to resolve/validate the target (project mismatch guard).
 
 ## Requirements
 
