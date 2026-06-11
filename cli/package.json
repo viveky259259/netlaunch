@@ -1,6 +1,6 @@
 {
   "name": "netlaunch",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Deploy static sites in seconds. Zero config, instant URLs.",
   "bin": {
     "netlaunch": "index.js"
