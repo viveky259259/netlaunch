@@ -175,8 +175,9 @@ netlaunch deploy -s my-app -f ./dist.zip
 
 > **Note — one-time sync required.** Self-hosted deploys are server-mediated: the backend uses
 > the service-account config **stored for your account**, not the key passed on each run. Sync it
-> **once** with `netlaunch config use` (or via the dashboard). After that, CI deploys with just
-> `NETLAUNCH_KEY` target your project.
+> **once** with `netlaunch config use` (or via the dashboard). After that, a CI run authenticated
+> with `NETLAUNCH_KEY` deploys to your synced project; `NETLAUNCH_SA_JSON` is still read locally to
+> resolve and validate the binding (the project mismatch guard), not to re-sync.
 >
 > On each run: if a login session is present the CLI **re-syncs** the key (and aborts if that
 > sync fails, rather than deploy to a stale target); with no session (typical CI) it **cannot**
