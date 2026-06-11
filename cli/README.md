@@ -68,7 +68,7 @@ Deploy to **your own Firebase project** instead of NetLaunch's. Each repo is bou
 own project via a committed `.netlaunch/config.json`, so the binding travels with the repo
 (teammates, CI, a new laptop) while the secret key stays local and gitignored.
 
-```
+```text
 .netlaunch/
   config.json           # COMMITTED — { project, site, ... }. The binding. No secrets.
   service-account.json  # GITIGNORED — the key. Per-developer, per-machine.
@@ -172,6 +172,11 @@ netlaunch deploy -s my-app -f ./dist.zip
     NETLAUNCH_SA_JSON: ${{ secrets.FIREBASE_SA_JSON }}
   run: npx netlaunch deploy --target prod --yes -f ./dist.zip
 ```
+
+> **Note:** self-hosted deploys are server-mediated — the backend uses the service-account
+> config stored for your account, so the key must be **synced** before deploy. That sync
+> currently needs a logged-in session, so a self-hosted CI deploy requires login credentials
+> (not just `NETLAUNCH_SA_JSON`); otherwise the CLI aborts rather than deploy to a stale target.
 
 ## Requirements
 

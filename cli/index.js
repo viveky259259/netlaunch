@@ -239,6 +239,7 @@ async function login() {
   console.log(dim('─'.repeat(40)));
 
   return new Promise((resolve, reject) => {
+    let loginTimeout;
     const server = http.createServer((req, res) => {
       // CORS for the auth page POST
       res.setHeader('Access-Control-Allow-Origin', '*');
@@ -283,6 +284,7 @@ async function login() {
         if (q.get('displayName')) console.log(`  ${dim(q.get('displayName'))}`);
         console.log(`\n  Credentials saved to ${dim(CREDS_FILE)}`);
         console.log(`  You can now deploy without --key\n`);
+        clearTimeout(loginTimeout);
         server.close();
         resolve();
         return;
@@ -313,6 +315,7 @@ async function login() {
             console.log(`\n  Credentials saved to ${dim(CREDS_FILE)}`);
             console.log(`  You can now deploy without --key\n`);
 
+            clearTimeout(loginTimeout);
             server.close();
             resolve();
           } catch (err) {
@@ -341,7 +344,7 @@ async function login() {
       openBrowser(authUrl);
 
       // Timeout after 10 minutes (Google sign-in + MFA can take a while)
-      setTimeout(() => {
+      loginTimeout = setTimeout(() => {
         console.error(`\n${red('✘')} Login timed out after 10 minutes. Please run: netlaunch login\n`);
         server.close();
         process.exit(1);
@@ -503,12 +506,18 @@ function configShow() {
 }
 
 function configRemove() {
-  const hadRepo = fs.existsSync(LOCAL_SA_FILE) || fs.existsSync(LOCAL_CONFIG_FILE);
+  // Operate on the discovered repo root (may be a parent dir), not just cwd.
+  const disc = discoverRepoConfig(process.cwd());
+  const repoDir = disc ? disc.dir : process.cwd();
+  const repoSa = path.join(repoDir, '.netlaunch', 'service-account.json');
+  const repoCfg = path.join(repoDir, '.netlaunch', 'config.json');
+  const repoDot = path.join(repoDir, '.netlaunch');
+  const hadRepo = fs.existsSync(repoSa) || fs.existsSync(repoCfg);
   if (hadRepo) {
-    try { if (fs.existsSync(LOCAL_SA_FILE)) fs.unlinkSync(LOCAL_SA_FILE); } catch { /* ignore */ }
-    try { if (fs.existsSync(LOCAL_CONFIG_FILE)) fs.unlinkSync(LOCAL_CONFIG_FILE); } catch { /* ignore */ }
-    try { fs.rmdirSync(LOCAL_DIR); } catch { /* not empty — leave it */ }
-    console.log(`\n${green('✔')} Removed this repo's ${dim('.netlaunch/')} binding & key.`);
+    try { if (fs.existsSync(repoSa)) fs.unlinkSync(repoSa); } catch { /* ignore */ }
+    try { if (fs.existsSync(repoCfg)) fs.unlinkSync(repoCfg); } catch { /* ignore */ }
+    try { fs.rmdirSync(repoDot); } catch { /* not empty — leave it */ }
+    console.log(`\n${green('✔')} Removed ${dim(path.relative(process.cwd(), repoDot) || '.netlaunch/')} binding & key.`);
     console.log(`  ${dim('Global key cache (~/.netlaunch/projects/) left intact.')}`);
     console.log(`  ${dim('Deploys here now use NetLaunch hosting.')}\n`);
     return;
@@ -614,8 +623,13 @@ function writeRepoConfig(dir, { project, site, alias, production, target }) {
   const entry = stripSecretFields({ project, ...(site ? { site } : {}), ...(alias ? { alias } : {}), ...(production ? { production: true } : {}) });
   let out;
   if (target) {
-    out = { version: CONFIG_VERSION, ...existing };
-    out.targets = { ...(existing.targets || {}), [target]: entry };
+    // Sanitize anything already on disk before merging (defense in depth —
+    // a hand-edited config.json must never carry secrets back into the commit).
+    const safeExisting = stripSecretFields(existing);
+    const safeTargets = {};
+    for (const [k, v] of Object.entries(existing.targets || {})) safeTargets[k] = stripSecretFields(v);
+    out = { version: CONFIG_VERSION, ...safeExisting };
+    out.targets = { ...safeTargets, [target]: entry };
     if (!out.defaultTarget) out.defaultTarget = target;
     delete out.project; delete out.site; delete out.alias; delete out.production;
   } else {
@@ -626,16 +640,26 @@ function writeRepoConfig(dir, { project, site, alias, production, target }) {
 }
 
 // Global key cache (~/.netlaunch/projects/<projectId>.json) — convenience only.
-function keyCachePath(projectId) { return path.join(KEY_CACHE_DIR, `${projectId}.json`); }
+// Validate projectId so a crafted value can't escape KEY_CACHE_DIR via traversal.
+function isValidProjectId(id) { return typeof id === 'string' && /^[a-zA-Z0-9._-]{1,64}$/.test(id) && id !== '.' && id !== '..'; }
+function keyCachePath(projectId) {
+  if (!isValidProjectId(projectId)) return null;
+  const p = path.join(KEY_CACHE_DIR, `${projectId}.json`);
+  // Belt and suspenders: ensure the resolved path stays inside the cache dir.
+  if (path.dirname(path.resolve(p)) !== path.resolve(KEY_CACHE_DIR)) return null;
+  return p;
+}
 function readKeyCache(projectId) {
-  try { const p = keyCachePath(projectId); if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf-8')); }
+  try { const p = keyCachePath(projectId); if (p && fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf-8')); }
   catch { /* ignore */ }
   return null;
 }
 function writeKeyCache(parsed) {
+  const p = keyCachePath(parsed && parsed.project_id);
+  if (!p) return;
   try {
     fs.mkdirSync(KEY_CACHE_DIR, { recursive: true });
-    fs.writeFileSync(keyCachePath(parsed.project_id), JSON.stringify(parsed, null, 2), { mode: 0o600 });
+    fs.writeFileSync(p, JSON.stringify(parsed, null, 2), { mode: 0o600 });
   } catch { /* ignore */ }
 }
 
@@ -1065,9 +1089,11 @@ async function main() {
         keyRes = { parsed, source: 'acquired' };
       }
 
-      // Mismatch guard for any non-env credential (§4).
-      if (keyRes.source !== 'env' && keyRes.parsed.project_id !== target.project) {
-        console.error(`\n${red('✘')} Credential project (${keyRes.parsed.project_id}) ≠ config project (${target.project}). Aborted.\n`);
+      // Mismatch guard for ALL credentials, including env (a wrong
+      // NETLAUNCH_SA_JSON / GOOGLE_APPLICATION_CREDENTIALS must not slip through).
+      // A missing project_id is treated as a mismatch.
+      if (keyRes.parsed.project_id !== target.project) {
+        console.error(`\n${red('✘')} Credential project (${keyRes.parsed.project_id || 'unknown'}) ≠ config project (${target.project}). Aborted.\n`);
         process.exit(1);
       }
       selfHosted = { target, parsed: keyRes.parsed };
@@ -1099,15 +1125,24 @@ async function main() {
     const siteName = opts.site || (selfHosted ? selfHosted.target.site : null);
     if (!siteName) { console.error(red('Error: Missing --site name (no config.json to infer it).')); process.exit(1); }
 
-    // Self-hosted: sync the key to the server so cliDeploy targets it, then banner + confirm.
+    // Self-hosted: the deploy is server-mediated — cliDeploy uses the server-stored
+    // config for this user, NOT the local key payload. So the SA MUST sync first;
+    // refuse rather than silently deploy against stale/missing server config.
     if (selfHosted) {
       await confirmDeploy(selfHosted.target, opts);   // confirm BEFORE any server mutation
       if (!idToken) idToken = await getValidIdToken();
-      if (idToken) {
-        try {
-          await callFirebaseFunction('saveFirebaseConfigFunction',
-            { serviceAccountJson: JSON.stringify(selfHosted.parsed) }, idToken);
-        } catch { /* best effort — server may already have it */ }
+      if (!idToken) {
+        console.error(`\n${red('✘')} Self-hosted deploy needs a login session to sync credentials to the server.`);
+        console.error(dim('  Run: netlaunch login, then retry. (An API-key-only session cannot sync self-hosted config.)\n'));
+        process.exit(1);
+      }
+      try {
+        await callFirebaseFunction('saveFirebaseConfigFunction',
+          { serviceAccountJson: JSON.stringify(selfHosted.parsed) }, idToken);
+      } catch (err) {
+        console.error(`\n${red('✘')} Failed to sync self-hosted credentials to the server: ${err.message}`);
+        console.error(dim('  Aborting to avoid deploying to a stale or incorrect project.\n'));
+        process.exit(1);
       }
     }
 
