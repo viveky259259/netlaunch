@@ -173,10 +173,15 @@ netlaunch deploy -s my-app -f ./dist.zip
   run: npx netlaunch deploy --target prod --yes -f ./dist.zip
 ```
 
-> **Note:** self-hosted deploys are server-mediated — the backend uses the service-account
-> config stored for your account, so the key must be **synced** before deploy. That sync
-> currently needs a logged-in session, so a self-hosted CI deploy requires login credentials
-> (not just `NETLAUNCH_SA_JSON`); otherwise the CLI aborts rather than deploy to a stale target.
+> **Note — one-time sync required.** Self-hosted deploys are server-mediated: the backend uses
+> the service-account config **stored for your account**, not the key passed on each run. Sync it
+> **once** with `netlaunch config use` (or via the dashboard). After that, CI deploys with just
+> `NETLAUNCH_KEY` target your project.
+>
+> On each run: if a login session is present the CLI **re-syncs** the key (and aborts if that
+> sync fails, rather than deploy to a stale target); with no session (typical CI) it **cannot**
+> re-sync, so it proceeds on the previously-synced config and prints a warning. `NETLAUNCH_SA_JSON`
+> is still used locally to resolve/validate the target (project mismatch guard).
 
 ## Requirements
 

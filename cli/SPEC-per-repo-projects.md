@@ -61,8 +61,10 @@ Multi-environment:
   Resolution requires `--target` or `defaultTarget`; else error.
 - If `targets` absent, the top-level object is the single target.
 - `version` > highest supported → **error**: "config.json version N not supported; upgrade netlaunch."
-- The writer MUST strip any `type` / `client_email` / `private_key` / `private_key_id`
-  fields before writing (config.json never holds secrets, even by accident).
+- The writer MUST strip all known service-account secret fields before writing —
+  `type`, `private_key`, `private_key_id`, `client_email`, `client_id`, `auth_uri`,
+  `token_uri` (the `SECRET_FIELDS` list in the CLI) — so config.json never holds
+  secrets, even by accident.
 
 ## 3. Resolution Algorithm
 ```

@@ -1125,24 +1125,27 @@ async function main() {
     const siteName = opts.site || (selfHosted ? selfHosted.target.site : null);
     if (!siteName) { console.error(red('Error: Missing --site name (no config.json to infer it).')); process.exit(1); }
 
-    // Self-hosted: the deploy is server-mediated — cliDeploy uses the server-stored
-    // config for this user, NOT the local key payload. So the SA MUST sync first;
-    // refuse rather than silently deploy against stale/missing server config.
+    // Self-hosted: the deploy is server-mediated — cliDeploy uses the config
+    // stored for this account, NOT the local key payload. When we have a session
+    // we (re)sync so the server is fresh; a failed sync aborts rather than deploy
+    // to a stale/incorrect project. With no session we can't sync, so we proceed
+    // on previously-synced config — but warn loudly (never a silent stale deploy).
     if (selfHosted) {
       await confirmDeploy(selfHosted.target, opts);   // confirm BEFORE any server mutation
       if (!idToken) idToken = await getValidIdToken();
-      if (!idToken) {
-        console.error(`\n${red('✘')} Self-hosted deploy needs a login session to sync credentials to the server.`);
-        console.error(dim('  Run: netlaunch login, then retry. (An API-key-only session cannot sync self-hosted config.)\n'));
-        process.exit(1);
-      }
-      try {
-        await callFirebaseFunction('saveFirebaseConfigFunction',
-          { serviceAccountJson: JSON.stringify(selfHosted.parsed) }, idToken);
-      } catch (err) {
-        console.error(`\n${red('✘')} Failed to sync self-hosted credentials to the server: ${err.message}`);
-        console.error(dim('  Aborting to avoid deploying to a stale or incorrect project.\n'));
-        process.exit(1);
+      if (idToken) {
+        try {
+          await callFirebaseFunction('saveFirebaseConfigFunction',
+            { serviceAccountJson: JSON.stringify(selfHosted.parsed) }, idToken);
+        } catch (err) {
+          console.error(`\n${red('✘')} Failed to sync self-hosted credentials to the server: ${err.message}`);
+          console.error(dim('  Aborting to avoid deploying to a stale or incorrect project.\n'));
+          process.exit(1);
+        }
+      } else {
+        console.log(`\n  ${yellow('!')} No login session — cannot re-sync credentials now.`);
+        console.log(`  ${dim(`Relying on previously-synced server config for ${selfHosted.target.project}.`)}`);
+        console.log(`  ${dim('Run `netlaunch config use` (or sync via the dashboard) once if you never have.')}`);
       }
     }
 
