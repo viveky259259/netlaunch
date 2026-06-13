@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutterkit/kit/kit.dart';
 import 'package:netlaunch_auth/netlaunch_auth.dart';
 import 'package:netlaunch_ui/netlaunch_ui.dart';
+import '../version.dart';
 
 class LandingScreen extends StatelessWidget {
   const LandingScreen({super.key});
@@ -18,7 +19,9 @@ class LandingScreen extends StatelessWidget {
             _HeroSection(onGoogleSignIn: () => _signInWithGoogle(context)),
             const _DashboardPreview(),
             const _FeaturesSection(),
-            const SizedBox(height: 64),
+            const SizedBox(height: 48),
+            const _VersionFooter(),
+            const SizedBox(height: 24),
           ],
         ),
       ),
@@ -646,6 +649,28 @@ class _SignInDialogState extends State<_SignInDialog> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small version label shown at the bottom of the landing page.
+class _VersionFooter extends StatelessWidget {
+  const _VersionFooter();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: Text(
+          'NetLaunch · v$kAppVersion',
+          style: const TextStyle(
+            fontSize: 12,
+            color: AppColors.textSecondary,
+            letterSpacing: 0.2,
           ),
         ),
       ),
