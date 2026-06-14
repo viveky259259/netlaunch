@@ -19,6 +19,19 @@ export class SiteOwnershipError extends Error {
   }
 }
 
+/**
+ * Thrown when a user's saved self-hosted Firebase service-account key can no
+ * longer mint an access token (e.g. the key was rotated or deleted, which
+ * surfaces as an opaque `invalid_grant` from Google's token endpoint).
+ * Callers map this to a 400 with an actionable, recoverable message.
+ */
+export class SelfHostedCredentialError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SelfHostedCredentialError';
+  }
+}
+
 const BEACON_TEMPLATE = `<script>(function(){var d='__SITE_ID__',u='https://us-central1-FIREBASE_PROJECT_ID_PLACEHOLDER.cloudfunctions.net/trackPageView';var p=location.pathname+location.search,r='';try{r=document.referrer?new URL(document.referrer).origin:''}catch(e){}var b='d='+encodeURIComponent(d)+'&p='+encodeURIComponent(p)+'&r='+encodeURIComponent(r)+'&w='+innerWidth+'&t='+Math.floor(Date.now()/1e3);if(navigator.sendBeacon){navigator.sendBeacon(u,b)}else{fetch(u,{method:'POST',body:b,keepalive:true})}})()</script>`;
 
 /**
@@ -73,9 +86,27 @@ async function resolveCredentials(userConfig?: FirebaseProjectConfig): Promise<D
       key: userConfig.privateKey,
       scopes: ['https://www.googleapis.com/auth/firebase.hosting'],
     });
-    const tokenResponse = await client.getAccessToken();
+    let tokenResponse;
+    try {
+      tokenResponse = await client.getAccessToken();
+    } catch (err) {
+      // A rotated/deleted key surfaces here as `invalid_grant: Invalid JWT
+      // Signature`. Translate it into a clear, recoverable instruction instead
+      // of bubbling up the opaque upstream error.
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error(`Self-hosted credential failed for ${userConfig.clientEmail}: ${detail}`);
+      throw new SelfHostedCredentialError(
+        `The saved Firebase service-account key for ${userConfig.projectId} is no longer valid ` +
+        `(it was likely rotated or deleted). Update it with ` +
+        `\`netlaunch config set -f <new-service-account>.json --sync\`, or remove the saved ` +
+        `config to deploy to NetLaunch hosting instead.`,
+      );
+    }
     if (!tokenResponse.token) {
-      throw new Error('Failed to get access token from user service account. Check your Firebase configuration.');
+      throw new SelfHostedCredentialError(
+        `Could not obtain an access token from the saved service account for ${userConfig.projectId}. ` +
+        `Check the Firebase configuration, then re-run \`netlaunch config set --sync\`.`,
+      );
     }
     return {
       projectId: userConfig.projectId,

@@ -6,7 +6,7 @@ import * as crypto from 'crypto';
 import Busboy from 'busboy';
 import { validateApiKey, getUserIdFromApiKey } from '../services/apiKeyService';
 import { extractZip, validateExtractedFiles, cleanupTempFiles } from '../services/fileProcessor';
-import { deployToFirebaseHosting, getUserFirebaseConfig, SiteOwnershipError } from '../services/firebaseDeployer';
+import { deployToFirebaseHosting, getUserFirebaseConfig, SiteOwnershipError, SelfHostedCredentialError } from '../services/firebaseDeployer';
 
 /**
  * HTTP handler for CLI deployments.
@@ -163,6 +163,11 @@ export const cliDeployHandler = (
         // Site-name ownership conflict → 403 with the specific reason.
         if (error instanceof SiteOwnershipError) {
           res.status(403).json({ error: error.message });
+          return;
+        }
+        // Stale/rotated self-hosted credential → 400 with a recoverable instruction.
+        if (error instanceof SelfHostedCredentialError) {
+          res.status(400).json({ error: error.message });
           return;
         }
         // Otherwise return a generic message — don't leak upstream/internal detail.
