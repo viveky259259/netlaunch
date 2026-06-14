@@ -26,14 +26,25 @@ function isTransientAuthError(err: unknown): boolean {
   );
 }
 
+class AuthError extends Error {
+  readonly transient: boolean;
+  constructor(message: string, transient: boolean) {
+    super(message);
+    this.transient = transient;
+  }
+}
+
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 /**
  * Mint an access token for the service account, retrying through new-key
- * propagation delays before giving up.
+ * propagation delays. Throws AuthError({transient}); transient=true means the
+ * key may just not be active yet (the caller should not hard-fail on it).
  */
 async function mintAccessToken(clientEmail: string, privateKey: string): Promise<string> {
-  // ~0s, 2s, 5s, 9s, 14s — covers typical new-key propagation without blowing
-  // the callable function timeout.
-  const delays = [0, 2000, 3000, 4000, 5000];
+  // ~0,2,4,6,8,10s ≈ 30s budget — covers most new-key propagation while staying
+  // under the callable timeout.
+  const delays = [0, 2000, 4000, 6000, 8000, 10000];
   let lastErr: unknown;
   for (let attempt = 0; attempt < delays.length; attempt++) {
     if (delays[attempt]) await sleep(delays[attempt]);
@@ -45,50 +56,65 @@ async function mintAccessToken(clientEmail: string, privateKey: string): Promise
     try {
       const tokenResponse = await client.getAccessToken();
       if (tokenResponse.token) return tokenResponse.token;
-      lastErr = new Error('Could not authenticate with the provided service account.');
+      lastErr = new Error('Empty token response from Google.');
     } catch (err) {
       lastErr = err;
-      if (!isTransientAuthError(err)) break; // permanent failure — stop early
-      console.warn(`saveFirebaseConfig: token mint attempt ${attempt + 1} failed (transient), retrying: ${err instanceof Error ? err.message : err}`);
+      if (!isTransientAuthError(err)) {
+        // Permanent (e.g. malformed PEM private_key) — stop immediately.
+        throw new AuthError(`Could not authenticate with the service account: ${errMsg(err)}`, false);
+      }
+      console.warn(`saveFirebaseConfig: token mint attempt ${attempt + 1} transient, retrying: ${errMsg(err)}`);
     }
   }
-  const detail = lastErr instanceof Error ? lastErr.message : String(lastErr);
-  if (isTransientAuthError(lastErr)) {
-    throw new Error(
-      'Could not authenticate with the service account yet — a newly created key can take up to a minute to activate. Please retry in a moment. ' +
-      `(${detail})`
-    );
-  }
-  throw new Error(`Could not authenticate with the provided service account: ${detail}`);
+  throw new AuthError(`Could not verify the service-account key yet: ${errMsg(lastErr)}`, true);
+}
+
+interface ValidationResult {
+  verified: boolean;
+  warning?: string;
 }
 
 /**
- * Validate a service account JSON by minting a token (with retry through
- * new-key propagation) and listing Firebase Hosting sites.
+ * Validate a service account by minting a token and listing Hosting sites.
+ * NEVER hard-fails on a transient/propagation error — those return
+ * {verified:false, warning} so the config still saves (a freshly minted key is
+ * often valid but not yet active; the first deploy confirms it). Only clearly
+ * permanent problems (malformed key, missing Hosting permission) throw.
  */
 async function validateServiceAccount(
   projectId: string,
   clientEmail: string,
   privateKey: string
-): Promise<void> {
-  const token = await mintAccessToken(clientEmail, privateKey);
+): Promise<ValidationResult> {
+  let token: string;
+  try {
+    token = await mintAccessToken(clientEmail, privateKey);
+  } catch (err) {
+    if (err instanceof AuthError && err.transient) {
+      return {
+        verified: false,
+        warning:
+          'The key could not be verified yet — a newly created key can take up to a minute to activate. ' +
+          'Your config was saved; the first deploy will confirm it. If deploys keep failing, generate a fresh ' +
+          'private key in the Firebase console (Project settings → Service accounts) and re-upload.',
+      };
+    }
+    throw err; // permanent — surface to the caller
+  }
 
-  // Test: list hosting sites on the project
+  // Token minted — check Hosting access.
   const response = await fetch(
     `https://firebasehosting.googleapis.com/v1beta1/projects/${projectId}/sites`,
-    {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${token}` },
-    }
+    { method: 'GET', headers: { 'Authorization': `Bearer ${token}` } }
   );
+  if (response.ok) return { verified: true };
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    if (response.status === 403) {
-      throw new Error('Service account lacks Firebase Hosting permissions. Enable the Firebase Hosting API and grant the "Firebase Hosting Admin" role.');
-    }
-    throw new Error(`Failed to access Firebase Hosting: ${errorText}`);
+  const errorText = await response.text();
+  if (response.status === 403) {
+    throw new Error('Service account lacks Firebase Hosting permissions. Enable the Firebase Hosting API and grant the "Firebase Hosting Admin" role.');
   }
+  // Non-permission Hosting errors shouldn't block the save.
+  return { verified: false, warning: `Saved, but a Hosting check returned an error (${response.status}): ${errorText}` };
 }
 
 /**
@@ -124,9 +150,11 @@ export const saveFirebaseConfig = async (
     throw new functions.https.HttpsError('invalid-argument', 'Missing required fields: project_id, client_email, private_key.');
   }
 
-  // Validate credentials actually work
+  // Validate — but only PERMANENT problems (malformed key, missing Hosting
+  // permission) block the save. A still-propagating key saves with a warning.
+  let validation: ValidationResult;
   try {
-    await validateServiceAccount(project_id, client_email, private_key);
+    validation = await validateServiceAccount(project_id, client_email, private_key);
   } catch (err) {
     throw new functions.https.HttpsError(
       'failed-precondition',
@@ -140,6 +168,7 @@ export const saveFirebaseConfig = async (
     projectId: project_id,
     clientEmail: client_email,
     privateKey: private_key,
+    verified: validation.verified,
     savedAt: admin.firestore.Timestamp.now(),
     updatedAt: admin.firestore.Timestamp.now(),
   });
@@ -148,6 +177,10 @@ export const saveFirebaseConfig = async (
     success: true,
     projectId: project_id,
     clientEmail: client_email,
-    message: `Firebase config saved for project "${project_id}".`,
+    verified: validation.verified,
+    warning: validation.warning,
+    message: validation.verified
+      ? `Firebase config saved for project "${project_id}".`
+      : `Firebase config saved for project "${project_id}". ${validation.warning}`,
   };
 };
