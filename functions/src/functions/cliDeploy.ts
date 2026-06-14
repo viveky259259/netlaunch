@@ -38,11 +38,15 @@ export const cliDeployHandler = (
   let zipPath: string | null = null;
   let apiKey = '';
   let siteName = '';
+  let forceHosted = false;
 
   // Collect form fields
   busboy.on('field', (fieldname: string, val: string) => {
     if (fieldname === 'apiKey') apiKey = val;
     if (fieldname === 'siteName') siteName = val.toLowerCase().trim();
+    // Explicit opt-out of self-hosted: deploy to NetLaunch hosting regardless
+    // of any stored config (the `--hosted` flag / dashboard toggle).
+    if (fieldname === 'hosted') forceHosted = val === 'true' || val === '1';
   });
 
   // Collect the ZIP file
@@ -123,9 +127,13 @@ export const cliDeployHandler = (
           return;
         }
 
-        // Check if user has a self-hosted Firebase config
-        const userConfig = userId ? await getUserFirebaseConfig(userId) : null;
-        if (userConfig) {
+        // Resolve target: an explicit `hosted` flag forces NetLaunch hosting and
+        // skips any stored self-hosted config (so a stale/revoked saved key can't
+        // brick a hosted deploy). Otherwise use the user's self-hosted config if set.
+        const userConfig = (!forceHosted && userId) ? await getUserFirebaseConfig(userId) : null;
+        if (forceHosted) {
+          console.log('CLI deploy: hosted flag set — using NetLaunch hosting (skipping any stored config)');
+        } else if (userConfig) {
           console.log(`CLI deploy: using self-hosted config for project ${userConfig.projectId}`);
         }
 

@@ -61,7 +61,23 @@ async function resolveCredentials(userConfig?: FirebaseProjectConfig): Promise<D
       key: userConfig.privateKey,
       scopes: ['https://www.googleapis.com/auth/firebase.hosting'],
     });
-    const tokenResponse = await client.getAccessToken();
+    let tokenResponse;
+    try {
+      tokenResponse = await client.getAccessToken();
+    } catch (err) {
+      const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+      if (msg.includes('invalid_grant') || msg.includes('invalid jwt')) {
+        // The saved service-account key no longer authenticates — almost always
+        // because it was deleted/rotated. Give an actionable message instead of
+        // the raw "invalid_grant: Invalid JWT Signature".
+        throw new Error(
+          `Your saved Firebase key for project "${userConfig.projectId}" was rejected — it looks revoked or rotated. ` +
+          'Generate a fresh private key (Firebase console → Project settings → Service accounts → Generate new private key) ' +
+          'and re-upload it, or deploy with the hosted option to use NetLaunch hosting.'
+        );
+      }
+      throw err;
+    }
     if (!tokenResponse.token) {
       throw new Error('Failed to get access token from user service account. Check your Firebase configuration.');
     }
