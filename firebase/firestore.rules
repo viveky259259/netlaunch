@@ -30,6 +30,11 @@ service cloud.firestore {
       allow write: if false; // Write via Cloud Functions only
     }
 
+    // Site ownership registry — maps siteId -> owning user. Cloud Functions only.
+    match /sites/{siteId} {
+      allow read, write: if false;
+    }
+
     // Firebase configs (self-hosted) — Cloud Functions only, contains private keys
     match /firebaseConfigs/{userId} {
       allow read, write: if false;

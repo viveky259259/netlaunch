@@ -6,7 +6,7 @@ import * as crypto from 'crypto';
 import Busboy from 'busboy';
 import { validateApiKey, getUserIdFromApiKey } from '../services/apiKeyService';
 import { extractZip, validateExtractedFiles, cleanupTempFiles } from '../services/fileProcessor';
-import { deployToFirebaseHosting, getUserFirebaseConfig } from '../services/firebaseDeployer';
+import { deployToFirebaseHosting, getUserFirebaseConfig, SiteOwnershipError } from '../services/firebaseDeployer';
 
 /**
  * HTTP handler for CLI deployments.
@@ -96,9 +96,8 @@ export const cliDeployHandler = (
       let extractPath: string | null = null;
 
       try {
-        // Create deployment record
+        // Create deployment record. Only the hash is stored — never the raw key.
         await db.collection('deployments').doc(deploymentId).set({
-          apiKey,
           apiKeyHash,
           userId,
           siteName,
@@ -134,6 +133,7 @@ export const cliDeployHandler = (
           validation.contentPath,
           siteName,
           deploymentId,
+          userId,
           userConfig || undefined,
         );
 
@@ -159,9 +159,14 @@ export const cliDeployHandler = (
             updatedAt: admin.firestore.Timestamp.now(),
           });
         } catch (_) { /* ignore update error */ }
-        res.status(500).json({
-          error: error instanceof Error ? error.message : 'Deployment failed',
-        });
+
+        // Site-name ownership conflict → 403 with the specific reason.
+        if (error instanceof SiteOwnershipError) {
+          res.status(403).json({ error: error.message });
+          return;
+        }
+        // Otherwise return a generic message — don't leak upstream/internal detail.
+        res.status(500).json({ error: 'Deployment failed' });
       } finally {
         if (zipPath) cleanupTempFiles(zipPath);
         if (extractPath) cleanupTempFiles(extractPath);

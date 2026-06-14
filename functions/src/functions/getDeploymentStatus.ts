@@ -1,5 +1,6 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import * as crypto from 'crypto';
 import { validateApiKey } from '../services/apiKeyService';
 
 const db = admin.firestore();
@@ -35,15 +36,20 @@ export const getDeploymentStatus = async (
   }
   
   const deploymentData = deploymentDoc.data();
-  
-  // Verify deployment belongs to this API key
-  if (deploymentData?.apiKey !== data.apiKey) {
+
+  // Verify deployment belongs to this API key (compare hashes — the raw key is
+  // never stored).
+  const apiKeyHash = crypto.createHash('sha256').update(data.apiKey).digest('hex');
+  if (deploymentData?.apiKeyHash !== apiKeyHash) {
     throw new functions.https.HttpsError('permission-denied', 'Deployment does not belong to this API key');
   }
-  
+
+  // Never return secret fields to the client.
+  const { apiKey: _apiKey, apiKeyHash: _apiKeyHash, ...safeData } = deploymentData ?? {};
+
   return {
     id: deploymentDoc.id,
-    ...deploymentData,
+    ...safeData,
     createdAt: deploymentData?.createdAt?.toDate?.()?.toISOString(),
     updatedAt: deploymentData?.updatedAt?.toDate?.()?.toISOString(),
   };

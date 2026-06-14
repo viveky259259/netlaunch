@@ -1,5 +1,5 @@
 # Setup Guide
-fk_6c39aa2a134b603e6f7823100d6a59f30f3e3dadb2f10e967a6bb6965c2c1b0d
+
 ## Prerequisites
 
 1. **Node.js 20+** - [Download](https://nodejs.org/)

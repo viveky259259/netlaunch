@@ -18,16 +18,55 @@ export async function downloadZipFile(bucketName: string, filePath: string): Pro
   return tempFilePath;
 }
 
+// Unix file-type mask and symlink mode bits (stored in the high 16 bits of a
+// zip entry's external attributes).
+const S_IFMT = 0o170000;
+const S_IFLNK = 0o120000;
+
 /**
- * Extract zip file to temporary directory
+ * Extract zip file to a temporary directory.
+ *
+ * Hardened against:
+ *   - Zip Slip / path traversal: entries that resolve outside the extraction
+ *     root are rejected.
+ *   - Symlink entries: skipped entirely, so a crafted archive cannot point at
+ *     and later exfiltrate files outside the upload (e.g. /proc/self/environ).
  */
 export function extractZip(zipPath: string): string {
   const extractPath = path.join(os.tmpdir(), `extract-${Date.now()}`);
   fs.mkdirSync(extractPath, { recursive: true });
-  
+
+  const resolvedRoot = path.resolve(extractPath);
   const zip = new AdmZip(zipPath);
-  zip.extractAllTo(extractPath, true);
-  
+
+  for (const entry of zip.getEntries()) {
+    const entryName = entry.entryName;
+
+    // Reject absolute paths and traversal — the resolved target must stay
+    // within the extraction root.
+    const target = path.resolve(resolvedRoot, entryName);
+    if (target !== resolvedRoot && !target.startsWith(resolvedRoot + path.sep)) {
+      throw new Error(`Unsafe path in archive (path traversal): ${entryName}`);
+    }
+
+    // Skip symlinks — the unix mode lives in the high 16 bits of the external
+    // file attributes.
+    const externalAttr = (entry.header as unknown as { attr?: number }).attr || 0;
+    const unixMode = (externalAttr >>> 16) & 0xffff;
+    if ((unixMode & S_IFMT) === S_IFLNK) {
+      console.warn(`Skipping symlink entry in archive: ${entryName}`);
+      continue;
+    }
+
+    if (entry.isDirectory) {
+      fs.mkdirSync(target, { recursive: true });
+      continue;
+    }
+
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, entry.getData());
+  }
+
   return extractPath;
 }
 

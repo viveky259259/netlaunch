@@ -4,8 +4,20 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import * as zlib from 'zlib';
 import { JWT } from 'google-auth-library';
+import { decryptSecret, isEncrypted } from './secretCrypto';
 
 const DEFAULT_PROJECT_ID = process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID || 'FIREBASE_PROJECT_ID_PLACEHOLDER';
+
+/**
+ * Thrown when a deploy targets a site name owned by a different user.
+ * Callers map this to a 403 / permission-denied response.
+ */
+export class SiteOwnershipError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SiteOwnershipError';
+  }
+}
 
 const BEACON_TEMPLATE = `<script>(function(){var d='__SITE_ID__',u='https://us-central1-FIREBASE_PROJECT_ID_PLACEHOLDER.cloudfunctions.net/trackPageView';var p=location.pathname+location.search,r='';try{r=document.referrer?new URL(document.referrer).origin:''}catch(e){}var b='d='+encodeURIComponent(d)+'&p='+encodeURIComponent(p)+'&r='+encodeURIComponent(r)+'&w='+innerWidth+'&t='+Math.floor(Date.now()/1e3);if(navigator.sendBeacon){navigator.sendBeacon(u,b)}else{fetch(u,{method:'POST',body:b,keepalive:true})}})()</script>`;
 
@@ -91,10 +103,15 @@ export async function getUserFirebaseConfig(userId: string): Promise<FirebasePro
   if (!doc.exists) return null;
 
   const data = doc.data()!;
+  // privateKeyEnc is the encrypted-at-rest field; data.privateKey is legacy
+  // plaintext kept for backward compatibility with configs saved before
+  // encryption was introduced.
+  const stored = data.privateKeyEnc ?? data.privateKey;
+  const privateKey = isEncrypted(stored) ? decryptSecret(stored) : stored;
   return {
     projectId: data.projectId,
     clientEmail: data.clientEmail,
-    privateKey: data.privateKey,
+    privateKey,
   };
 }
 
@@ -179,10 +196,37 @@ export async function deployToFirebaseHosting(
   extractPath: string,
   siteName: string,
   deploymentId: string,
+  userId: string | null,
   userConfig?: FirebaseProjectConfig,
 ): Promise<string> {
   const creds = await resolveCredentials(userConfig);
   const siteId = validateSiteId(siteName);
+  const db = admin.firestore();
+
+  // Enforce site-name ownership for shared (NetLaunch-hosted) deployments.
+  // Self-hosted deploys land in the user's own Firebase project, so name
+  // collisions across users there are harmless and not gated here.
+  if (!creds.isSelfHosted) {
+    if (!userId) {
+      throw new SiteOwnershipError('A registered user is required to deploy to a NetLaunch site.');
+    }
+    const siteRef = db.collection('sites').doc(siteId);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(siteRef);
+      if (snap.exists) {
+        if (snap.data()?.ownerUserId !== userId) {
+          throw new SiteOwnershipError(`Site name "${siteId}" is already taken by another user.`);
+        }
+      } else {
+        tx.set(siteRef, {
+          siteId,
+          ownerUserId: userId,
+          siteName,
+          createdAt: admin.firestore.Timestamp.now(),
+        });
+      }
+    });
+  }
 
   console.log(`Deploying to Firebase Hosting site: ${siteId} (project: ${creds.projectId}, self-hosted: ${creds.isSelfHosted})`);
 
@@ -346,7 +390,6 @@ export async function deployToFirebaseHosting(
   const deploymentUrl = `https://${siteId}.web.app/`;
 
   // Update deployment record
-  const db = admin.firestore();
   await db.collection('deployments').doc(deploymentId).update({
     url: deploymentUrl,
     siteId: siteId,

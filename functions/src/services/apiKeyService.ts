@@ -10,6 +10,7 @@ export interface ApiKeyData {
   createdAt: admin.firestore.Timestamp;
   usageCount: number;
   lastUsed: admin.firestore.Timestamp | null;
+  revoked: boolean;
   metadata?: Record<string, any>;
 }
 
@@ -31,6 +32,7 @@ export async function generateApiKey(
     createdAt: admin.firestore.Timestamp.now(),
     usageCount: 0,
     lastUsed: null,
+    revoked: false,
     metadata: metadata || {},
   };
   
@@ -53,7 +55,12 @@ export async function validateApiKey(apiKey: string): Promise<boolean> {
   if (!doc.exists) {
     return false;
   }
-  
+
+  // Reject revoked keys.
+  if (doc.data()?.revoked === true) {
+    return false;
+  }
+
   // Update usage count and last used
   await db.collection('apiKeys').doc(hashedKey).update({
     usageCount: admin.firestore.FieldValue.increment(1),
@@ -79,6 +86,9 @@ export async function getUserIdFromApiKey(apiKey: string): Promise<string | null
   }
   
   const data = doc.data() as ApiKeyData;
+  if (data.revoked === true) {
+    return null;
+  }
   return data.userId || null;
 }
 

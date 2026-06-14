@@ -43,11 +43,22 @@ export async function trackPageViewHandler(
   const params = new URLSearchParams(body);
 
   const siteId = params.get('d') || '';
-  const pagePath = params.get('p') || '/';
+  // Bound the path length so a single attacker cannot explode the `pages`
+  // subcollection with unbounded distinct documents.
+  const pagePath = (params.get('p') || '/').slice(0, 300);
   const viewportWidth = parseInt(params.get('w') || '0', 10);
 
-  if (!siteId) {
+  if (!siteId || !/^[a-z0-9-]{1,40}$/.test(siteId)) {
     res.status(400).end();
+    return;
+  }
+
+  // Only accept analytics for sites that actually exist in our registry. This
+  // prevents anonymous write-amplification / Firestore cost abuse and forged
+  // analytics for arbitrary site IDs.
+  const siteRegistry = await db.collection('sites').doc(siteId).get();
+  if (!siteRegistry.exists) {
+    res.status(204).end();
     return;
   }
 

@@ -1,6 +1,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { JWT } from 'google-auth-library';
+import { encryptSecret } from '../services/secretCrypto';
 
 interface SaveFirebaseConfigRequest {
   serviceAccountJson: string;
@@ -87,15 +88,20 @@ export const saveFirebaseConfig = async (
     );
   }
 
-  // Save to Firestore (one config per user)
+  // Encrypt the private key before persisting — never store it in plaintext.
+  const privateKeyEnc = encryptSecret(private_key);
+
+  // Save to Firestore (one config per user). privateKey is explicitly deleted
+  // to migrate any legacy plaintext value off the document.
   const db = admin.firestore();
   await db.collection('firebaseConfigs').doc(context.auth.uid).set({
     projectId: project_id,
     clientEmail: client_email,
-    privateKey: private_key,
+    privateKeyEnc,
+    privateKey: admin.firestore.FieldValue.delete(),
     savedAt: admin.firestore.Timestamp.now(),
     updatedAt: admin.firestore.Timestamp.now(),
-  });
+  }, { merge: true });
 
   return {
     success: true,

@@ -32,12 +32,16 @@ export const listUserDeployments = async (
   
   const snapshot = await query.get();
   
-  const deployments = snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data(),
-    createdAt: doc.data().createdAt?.toDate?.()?.toISOString(),
-    updatedAt: doc.data().updatedAt?.toDate?.()?.toISOString(),
-  }));
+  const deployments = snapshot.docs.map(doc => {
+    // Never return secret fields to the client.
+    const { apiKey: _apiKey, apiKeyHash: _apiKeyHash, ...data } = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      createdAt: data.createdAt?.toDate?.()?.toISOString(),
+      updatedAt: data.updatedAt?.toDate?.()?.toISOString(),
+    };
+  });
   
   return {
     deployments: deployments,

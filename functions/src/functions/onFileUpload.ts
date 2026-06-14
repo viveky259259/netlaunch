@@ -69,7 +69,7 @@ export const onFileUpload = async (object: functions.storage.ObjectMetadata): Pr
     return;
   }
   
-  const { apiKey, siteName, requestId } = uploadRequest;
+  const { apiKey, siteName, requestId, userId: requestUserId } = uploadRequest;
   console.log(`Found upload request ${requestId} for file: ${filePath}, siteName: ${siteName}`);
   
   // Validate site name
@@ -95,7 +95,19 @@ export const onFileUpload = async (object: functions.storage.ObjectMetadata): Pr
   
   // Get user ID associated with this API key
   const userId = await getUserIdFromApiKey(apiKey);
-  
+
+  // Bind the API key to the requester: the key's owner must match the user who
+  // created the upload request (the request's userId is enforced == auth.uid by
+  // Firestore rules). Prevents a confused-deputy deploy with someone else's key.
+  if (!userId || (requestUserId && userId !== requestUserId)) {
+    console.error(`API key owner mismatch for request ${requestId}`);
+    await db.collection('fileUploadRequests').doc(requestId).update({
+      status: 'failed',
+      error: 'API key does not belong to the requesting user',
+    });
+    return;
+  }
+
   // Hash the API key for storage
   const apiKeyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
   
@@ -107,9 +119,9 @@ export const onFileUpload = async (object: functions.storage.ObjectMetadata): Pr
   let extractPath: string | null = null;
   
   try {
-    // Create deployment record with pending status
+    // Create deployment record with pending status. Only the hash is stored —
+    // never the raw key.
     await db.collection('deployments').doc(deploymentId).set({
-      apiKey: apiKey,
       apiKeyHash: apiKeyHash,
       userId: userId,
       siteName: siteName,
@@ -153,7 +165,7 @@ export const onFileUpload = async (object: functions.storage.ObjectMetadata): Pr
     }
 
     // Deploy to Firebase Hosting with user's chosen site name
-    const finalUrl = await deployToFirebaseHosting(contentPath, siteName, deploymentId, userConfig || undefined);
+    const finalUrl = await deployToFirebaseHosting(contentPath, siteName, deploymentId, userId, userConfig || undefined);
     
     // Update deployment status to success
     await db.collection('deployments').doc(deploymentId).update({

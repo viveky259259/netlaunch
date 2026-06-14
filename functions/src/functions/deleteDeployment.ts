@@ -1,5 +1,6 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import * as crypto from 'crypto';
 import { validateApiKey } from '../services/apiKeyService';
 
 const db = admin.firestore();
@@ -35,7 +36,8 @@ export const deleteDeployment = async (
   }
   
   const deploymentData = deploymentDoc.data();
-  if (deploymentData?.apiKey !== data.apiKey) {
+  const apiKeyHash = crypto.createHash('sha256').update(data.apiKey).digest('hex');
+  if (deploymentData?.apiKeyHash !== apiKeyHash) {
     throw new functions.https.HttpsError('permission-denied', 'Deployment does not belong to this API key');
   }
   
