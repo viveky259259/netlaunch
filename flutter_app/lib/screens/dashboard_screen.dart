@@ -8,6 +8,7 @@ import 'package:netlaunch_ui/netlaunch_ui.dart';
 import 'new_deployment_screen.dart';
 import 'site_detail_screen.dart';
 import 'settings_screen.dart';
+import '../version.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -320,6 +321,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           .toList(),
                     );
                   },
+                ),
+                const SizedBox(height: 32),
+                const Center(
+                  child: Text(
+                    'NetLaunch · v$kAppVersion',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
                 ),
               ],
             ),
