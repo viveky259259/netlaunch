@@ -964,10 +964,11 @@ async function deploy(apiKey, siteName, filePath, info = {}) {
   console.log(dim('─'.repeat(40)));
   console.log(`\nUploading and deploying...`);
 
-  const { body, contentType } = buildMultipart(
-    { apiKey, siteName },
-    filePath,
-  );
+  const fields = { apiKey, siteName };
+  // Tell the server to force NetLaunch hosting (skip any stored self-hosted
+  // config) when --hosted was passed.
+  if (info.forceHosted) fields.hosted = 'true';
+  const { body, contentType } = buildMultipart(fields, filePath);
 
   const url = new URL(DEPLOY_URL);
 
@@ -1152,6 +1153,7 @@ async function main() {
     await deploy(apiKey, siteName, resolvedPath, {
       selfHosted: !!selfHosted,
       projectId: selfHosted ? selfHosted.target.project : null,
+      forceHosted: !!opts.hosted,
     });
   }
 }
