@@ -16,13 +16,29 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * retryable; a genuinely wrong key keeps returning the same error.
  */
 function isTransientAuthError(err: unknown): boolean {
+  // Prefer structured GaxiosError fields when present.
+  const e = err as { status?: unknown; code?: unknown; response?: { status?: unknown; data?: { error?: unknown } } };
+  const status =
+    typeof e?.status === 'number' ? e.status :
+    typeof e?.response?.status === 'number' ? e.response.status : undefined;
+  // Token-endpoint server errors / rate limits are transient.
+  if (status !== undefined && (status >= 500 || status === 429)) return true;
+
+  const code = typeof e?.code === 'string' ? e.code.toUpperCase() : '';
+  if (['ETIMEDOUT', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED'].includes(code)) return true;
+
+  // A freshly minted key still propagating returns OAuth `invalid_grant`
+  // ("Invalid JWT Signature"). A revoked/malformed key returns the SAME thing,
+  // so this case is genuinely ambiguous — we retry, then (caller) save with a
+  // warning rather than hard-fail. Malformed-PEM errors don't match here and
+  // are treated as permanent (no retry).
+  const oauthErr = String(e?.response?.data?.error ?? '').toLowerCase();
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
   return (
+    oauthErr === 'invalid_grant' ||
     msg.includes('invalid_grant') ||
     msg.includes('invalid jwt signature') ||
-    msg.includes('invalid jwt') ||
-    msg.includes('etimedout') ||
-    msg.includes('econnreset')
+    msg.includes('invalid jwt')
   );
 }
 
@@ -103,18 +119,36 @@ async function validateServiceAccount(
   }
 
   // Token minted — check Hosting access.
-  const response = await fetch(
-    `https://firebasehosting.googleapis.com/v1beta1/projects/${projectId}/sites`,
-    { method: 'GET', headers: { 'Authorization': `Bearer ${token}` } }
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://firebasehosting.googleapis.com/v1beta1/projects/${projectId}/sites`,
+      { method: 'GET', headers: { 'Authorization': `Bearer ${token}` } }
+    );
+  } catch (err) {
+    // Transport failure (network) — transient, keep the save best-effort.
+    return {
+      verified: false,
+      warning: `Saved, but the Hosting check could not complete (network error: ${errMsg(err)}). Your first deploy will confirm the key.`,
+    };
+  }
+
   if (response.ok) return { verified: true };
 
   const errorText = await response.text();
   if (response.status === 403) {
     throw new Error('Service account lacks Firebase Hosting permissions. Enable the Firebase Hosting API and grant the "Firebase Hosting Admin" role.');
   }
-  // Non-permission Hosting errors shouldn't block the save.
-  return { verified: false, warning: `Saved, but a Hosting check returned an error (${response.status}): ${errorText}` };
+  // Other 4xx (400/401/404 …) mean permanent misconfiguration — a wrong
+  // projectId or a project/service-account mismatch — so reject rather than
+  // persist a broken config. Only 429 / 5xx are treated as transient.
+  if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+    throw new Error(`Service account could not access Firebase Hosting for project "${projectId}" (HTTP ${response.status}): ${errorText}`);
+  }
+  return {
+    verified: false,
+    warning: `Saved, but a transient Hosting check error occurred (HTTP ${response.status}). Your first deploy will confirm the key.`,
+  };
 }
 
 /**
